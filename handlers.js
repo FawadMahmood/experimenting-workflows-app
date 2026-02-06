@@ -14,7 +14,7 @@ module.exports = (app) => {
       const filePath = files.length > 0 ? files[0].filename : 'README.md';
       
       // Post initial review comment
-      const body = `🤖 Workflow run started for PR: [${context.runId}](${context.serverUrl}/${repository.owner.login}/${repository.name}/actions/runs/${context.runId})\n\nTo run additional steps, reply to this review comment with any message.\n\nAvailable actions: run tests, deploy, lint, or run additional\n\n*Note: You can reply directly to this comment in the review thread.*`;
+      const body = `🤖 Workflow run started for PR actions: [${context.runId}](${context.serverUrl}/${repository.owner.login}/${repository.name}/actions/runs/${context.runId})\n\nTo run additional steps, reply to this review comment with any message.\n\nAvailable actions: run tests, deploy, lint, or run additional\n\n*Note: You can reply directly to this comment in the review thread.*`;
       
       await context.octokit.pulls.createReview({
         owner: repository.owner.login,
