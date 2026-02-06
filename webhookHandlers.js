@@ -39,14 +39,14 @@ export function registerWebhookHandlers(app) {
     console.log('GitHub comment content:', comment.body);
     // Read and log e2e-tests-run-command.mdc
     try {
-      const e2eTestRule = await fs.readFile('./.cursor/rules/e2e-tests-run-command.mdc', 'utf8');
+      const e2eTestRule = await fs.readFile('./data/e2e-tests-run-command.mdc', 'utf8');
       console.log('e2e-tests-run-command.mdc content:', e2eTestRule);
     } catch (err) {
       console.error('Could not read e2e-tests-run-command.mdc:', err);
     }
     // Read and log som-metadata.ts
     try {
-      const somMetadata = await fs.readFile('./e2e/models/som-metadata.ts', 'utf8');
+      const somMetadata = await fs.readFile('./data/som-metadata.ts', 'utf8');
       console.log('som-metadata.ts content:', somMetadata);
     } catch (err) {
       console.error('Could not read som-metadata.ts:', err);
