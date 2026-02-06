@@ -40,7 +40,7 @@ export default (app) => {
     const { comment, pull_request, repository } = context.payload;
     
     // Ignore bot's own comments
-    if (comment.user.login === 'github-actions[bot]') return;
+    if (comment.user.login === 'washmen-tester-demo') return;
     
     // Check if it's a reply to bot's comment
     if (comment.in_reply_to_id) {
