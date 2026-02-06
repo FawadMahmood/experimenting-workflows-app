@@ -6,7 +6,7 @@ console.log('PRIVATE_KEY length:', process.env.PRIVATE_KEY ? process.env.PRIVATE
 console.log('WEBHOOK_SECRET length:', process.env.WEBHOOK_SECRET ? process.env.WEBHOOK_SECRET.length : 'undefined');
 
 if (!process.env.APP_ID || !process.env.PRIVATE_KEY || !process.env.WEBHOOK_SECRET) {
-  throw new Error('Missing required environment variables: APP_ID, PRIVATE_KEY, WEBHOOK_SECRET');
+  throw new Error('Missing environment variables: APP_ID, PRIVATE_KEY, WEBHOOK_SECRET');
 }
 
 let probot;
