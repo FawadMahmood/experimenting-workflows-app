@@ -1,7 +1,15 @@
 import { Probot } from 'probot';
 import handlers from './handlers.js';
 
-const probot = new Probot();
+if (!process.env.APP_ID || !process.env.PRIVATE_KEY || !process.env.WEBHOOK_SECRET) {
+  throw new Error('Missing required environment variables: APP_ID, PRIVATE_KEY, WEBHOOK_SECRET');
+}
+
+const probot = new Probot({
+  appId: process.env.APP_ID,
+  privateKey: process.env.PRIVATE_KEY,
+  secret: process.env.WEBHOOK_SECRET,
+});
 
 handlers(probot);
 
