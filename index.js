@@ -20,10 +20,6 @@ try {
   throw new Error('Failed to create Probot instance: ' + error.message);
 }
 
-if (!probot || !probot.server) {
-  throw new Error('Probot instance or server not created properly');
-}
-
 handlers(probot);
 
 // Add a simple health check route
