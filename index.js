@@ -24,4 +24,7 @@ handlers(probot);
 
 
 // Vercel serverless export
-export default probot.webhooks;
+// Vercel expects a function as the default export
+export default function handler(req, res) {
+  return probot.webhooks(req, res);
+}
