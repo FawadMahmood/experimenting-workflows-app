@@ -36,31 +36,31 @@ export function registerWebhookHandlers(app) {
     const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
     // Log the content of the comment
     console.log('GitHub comment content:', comment.body);
-    // Read and log e2e-tests-run-command.mdc from repo
+    // Read and log .cursor/rules/e2e-tests-run-command.mdc from repo
     try {
       const { data: e2eTestRuleFile } = await octokit.rest.repos.getContent({
         owner: repository.owner.login,
         repo: repository.name,
-        path: 'data/e2e-tests-run-command.mdc',
+        path: '.cursor/rules/e2e-tests-run-command.mdc',
         ref: pull_request.head.ref
       });
       const e2eTestRule = Buffer.from(e2eTestRuleFile.content, e2eTestRuleFile.encoding).toString('utf8');
       console.log('e2e-tests-run-command.mdc content:', e2eTestRule);
     } catch (err) {
-      console.error('Could not read e2e-tests-run-command.mdc from repo:', err);
+      console.error('Could not read .cursor/rules/e2e-tests-run-command.mdc from repo:', err);
     }
-    // Read and log som-metadata.ts from repo
+    // Read and log e2e/models/som-metadata.ts from repo
     try {
       const { data: somMetadataFile } = await octokit.rest.repos.getContent({
         owner: repository.owner.login,
         repo: repository.name,
-        path: 'data/som-metadata.ts',
+        path: 'e2e/models/som-metadata.ts',
         ref: pull_request.head.ref
       });
       const somMetadata = Buffer.from(somMetadataFile.content, somMetadataFile.encoding).toString('utf8');
       console.log('som-metadata.ts content:', somMetadata);
     } catch (err) {
-      console.error('Could not read som-metadata.ts from repo:', err);
+      console.error('Could not read e2e/models/som-metadata.ts from repo:', err);
     }
     // Construct and log the prompt
     console.log('Prompt for Cursor:', prompt);
