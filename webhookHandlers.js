@@ -34,6 +34,7 @@ export function registerWebhookHandlers(app) {
   app.webhooks.on('pull_request_review_comment.created', async ({ octokit, payload }) => {
     const { comment, pull_request, repository } = payload;
     const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
+    console.log('comment.user.login', comment.user.login, 'botLogin', botLogin);
     if (comment.user.login === botLogin) return;
     if (comment.in_reply_to_id) {
       try {
