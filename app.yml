@@ -1,0 +1,11 @@
+name: CodeRabbitAI-like App
+description: A GitHub App that provides AI-powered code review and interaction
+url: https://github.com/yourusername/experimenting-workflow
+hook_events:
+  - pull_request
+  - pull_request_review_comment
+public: false
+permissions:
+  contents: read
+  pull_requests: write
+  issues: write
