@@ -33,7 +33,8 @@ export function registerWebhookHandlers(app) {
   // Review comment created
   app.webhooks.on('pull_request_review_comment.created', async ({ octokit, payload }) => {
     const { comment, pull_request, repository } = payload;
-    if (comment.user.login === 'github-actions[bot]') return;
+    const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
+    if (comment.user.login === botLogin) return;
     if (comment.in_reply_to_id) {
       try {
         const { data: parent } = await octokit.rest.pulls.getReviewComment({
@@ -41,7 +42,7 @@ export function registerWebhookHandlers(app) {
           repo: repository.name,
           comment_id: comment.in_reply_to_id
         });
-        if (parent.user.login === 'github-actions[bot]') {
+        if (parent.user.login === botLogin) {
           await octokit.rest.reactions.createForPullRequestReviewComment({
             owner: repository.owner.login,
             repo: repository.name,
