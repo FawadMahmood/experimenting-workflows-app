@@ -63,7 +63,6 @@ export function registerWebhookHandlers(app) {
       console.error('Could not read e2e/models/som-metadata.ts from repo:', err);
     }
     // Construct and log the prompt
-    console.log('Prompt for Cursor:', prompt);
     if (comment.user.login === botLogin) return;
     if (comment.in_reply_to_id) {
       try {
@@ -88,6 +87,7 @@ export function registerWebhookHandlers(app) {
               repo: repository.name,
               comment_id: parent.id
             });
+            console.log('Prompt for Cursor:', botComment.body);
             console.log('Bot comment body:', botComment.body);
           } catch (err) {
             console.error('Could not fetch bot comment body:', err);
