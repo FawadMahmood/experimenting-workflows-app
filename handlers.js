@@ -1,4 +1,4 @@
-module.exports = (app) => {
+export default (app) => {
   // PR opened/updated
   app.on(['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async (context) => {
     const { pull_request, repository } = context.payload;

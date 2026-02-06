@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Building new workflow file",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "probot run ./index.js",
     "dev": "smee -u $WEBHOOK_PROXY_URL -t http://localhost:3000/api/github/webhooks & probot run ./index.js",
