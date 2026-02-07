@@ -30,10 +30,10 @@ For example:
 
 🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})
 `;
-      await octokit.rest.pulls.createComment({
+      await octokit.rest.issues.createComment({
         owner: repository.owner.login,
         repo: repository.name,
-        pull_number: pull_request.number,
+        issue_number: pull_request.number,
         body: body
       });
       console.log(`Posted initial comment on PR ${pull_request.number}`);
