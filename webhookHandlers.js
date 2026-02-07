@@ -18,7 +18,7 @@ export function registerWebhookHandlers(app) {
 
     Thanks for your awesome work!
 
-    @${pull_request.user.login}, if this PR is ready for interactive E2E testing.
+    🚦 **If this PR is ready for interactive E2E testing.**
 
 **👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**
 
