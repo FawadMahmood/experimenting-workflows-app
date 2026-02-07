@@ -34,13 +34,8 @@ For example:
         owner: repository.owner.login,
         repo: repository.name,
         pull_number: pull_request.number,
-        body: '',
-        event: 'COMMENT',
-        comments: [{
-          path: filePath,
-          position: 1,
-          body: body
-        }]
+        body: body,
+        event: 'COMMENT'
       });
       console.log(`Posted initial comment on PR ${pull_request.number}`);
     } catch (error) {
