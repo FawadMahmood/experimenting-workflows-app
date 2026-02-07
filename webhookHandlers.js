@@ -1,9 +1,9 @@
-import readRepoFile from './utils/readRepoFile';
-import { App, Octokit } from 'octokit';
+import readRepoFile from './utils/readRepoFile.js';
+// webhookHandlers.js
 
-export function registerWebhookHandlers(app: App) {
+export function registerWebhookHandlers(app) {
   // PR opened/updated
-  app.webhooks.on(['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async ({ octokit, payload }: { octokit: Octokit, payload: any }) => {
+  app.webhooks.on(['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async ({ octokit, payload }) => {
     const { pull_request, repository } = payload;
     try {
       const { data: files } = await octokit.rest.pulls.listFiles({
@@ -11,8 +11,26 @@ export function registerWebhookHandlers(app: App) {
         repo: repository.name,
         pull_number: pull_request.number
       });
-      const filePath: string = files.length > 0 ? files[0].filename : 'README.md';
-      const body = `🎬 **E2E Test Runner Bot**\n\nHey there! 🚀\n\n@${pull_request.user.login}, if this PR is ready for interactive E2E testing.\n\n**👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**\n\nFor example:\n> login as new user and verify OTP\n> checkout flow for returning user\n\n---\n🤖 The AI will generate the E2E test run command for your prompt and ask for your confirmation before executing it.\n\n✨ *Reply directly to this comment with your prompt and I'll handle the rest!* ✨\n\n🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})\n`;
+      const filePath = files.length > 0 ? files[0].filename : 'README.md';
+      const body = `🎬 **E2E Test Runner Bot**
+
+Hey there! 🚀
+
+@${pull_request.user.login}, if this PR is ready for interactive E2E testing.
+
+**👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**
+
+For example:
+> login as new user and verify OTP
+> checkout flow for returning user
+
+---
+🤖 The AI will generate the E2E test run command for your prompt and ask for your confirmation before executing it.
+
+✨ *Reply directly to this comment with your prompt and I'll handle the rest!* ✨
+
+🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})
+`;
       // Pick first file in PR for review comment
       await octokit.rest.pulls.createReview({
         owner: repository.owner.login,
@@ -33,9 +51,9 @@ export function registerWebhookHandlers(app: App) {
   });
 
   // Review comment created
-  app.webhooks.on('pull_request_review_comment.created', async ({ octokit, payload }: { octokit: Octokit, payload: any }) => {
+  app.webhooks.on('pull_request_review_comment.created', async ({ octokit, payload }) => {
     const { comment, pull_request, repository } = payload;
-    const botLogin: string = process.env.BOT_LOGIN || 'github-actions[bot]';
+    const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
     // Log the content of the comment
     console.log('GitHub comment content:', comment.body);
     // Read and log .cursor/rules/e2e-tests-run-command.mdc from repo (with fallback)
@@ -83,7 +101,7 @@ export function registerWebhookHandlers(app: App) {
     }
   });
 
-  app.webhooks.onError((error: any) => {
+  app.webhooks.onError((error) => {
     if (error.name === 'AggregateError') {
       console.log(`Error processing request: ${error.event}`);
     } else {

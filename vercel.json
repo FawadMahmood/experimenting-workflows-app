@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "dist/api/github/webhooks.js",
+      "src": "index.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/github/webhooks",
-      "dest": "/dist/api/github/webhooks.js"
+      "dest": "index.js"
     }
   ]
 }

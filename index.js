@@ -2,9 +2,9 @@ import { App } from 'octokit';
 import { createNodeMiddleware } from '@octokit/webhooks';
 import { registerWebhookHandlers } from './webhookHandlers.js';
 
-const appId: string = process.env.APP_ID || '';
-const privateKey: string = process.env.PRIVATE_KEY || '';
-const secret: string = process.env.WEBHOOK_SECRET || '';
+const appId = process.env.APP_ID;
+const privateKey = process.env.PRIVATE_KEY;
+const secret = process.env.WEBHOOK_SECRET;
 
 const app = new App({
   appId,
@@ -16,6 +16,6 @@ registerWebhookHandlers(app);
 
 const middleware = createNodeMiddleware(app.webhooks);
 
-export default function handler(req: any, res: any): any {
+export default function handler(req, res) {
   return middleware(req, res);
 }

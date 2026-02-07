@@ -1,0 +1,952 @@
+---
+name: e2e-tests-run-command
+description: AI instructions for running E2E tests with cherry-picking based on user goals
+---
+
+# E2E Test Run Command - AI Instructions
+
+## Overview
+
+When user writes `@e2e-run "instructions"`, AI must:
+1. Analyze the user's instructions to understand the goal
+2. Read SOM model files to understand screen navigation paths
+3. Cherry-pick which screen tests are needed to achieve the goal
+4. **Validate that the path is complete and possible**
+5. **REJECT requests if path is incomplete or impossible**
+6. Set up and run only those specific tests (if valid)
+7. Default to iOS platform if no platform is specified
+8. **If `[CI]` tag is present, create an executable bash script file** with the generated command
+
+## Example Usage
+
+```
+@e2e-run user login into the app and see home page
+@e2e-run verify OTP code
+@e2e-run android: login with phone number
+@e2e-run ios: complete registration flow
+@e2e-run [CI] login as returning user
+@e2e-run [CI] android: new user registration
+```
+
+## Step-by-Step Process
+
+### Step 1: Parse User Instructions
+
+**Extract:**
+- **Goal/Intent**: What the user wants to achieve (e.g., "login", "verify OTP", "see home page")
+- **Platform**: Explicitly mentioned platform (`android:` or `ios:`) or default to `ios`
+- **Environment**: Explicitly mentioned environment (`dev:` or `prod:`) or default to `dev`
+- **CI Tag**: `[CI]` tag presence → Indicates bash script should be created
+
+**Pattern Recognition:**
+- `[CI]` tag → Create executable bash script file
+- `android:` or `ios:` prefix → Platform specification
+- `dev:` or `prod:` prefix → Environment specification
+
+**Example Parsing:**
+```
+Input: "android: user login into the app and see home page"
+→ Platform: android
+→ Environment: dev (default)
+→ Goal: "user login into the app and see home page"
+→ CI Tag: false
+
+Input: "[CI] android: login as returning user"
+→ Platform: android
+→ Environment: dev (default)
+→ Goal: "login as returning user"
+→ CI Tag: true (create bash script)
+```
+
+### Step 2: Analyze Goal and Select Tests
+
+**Use `selectTestsForGoal()` utility:**
+
+```typescript
+import {selectTestsForGoal, generateTestFilter} from '../utils';
+
+const result = selectTestsForGoal(goal);
+// Returns: { screens: string[], testFiles: string[], navigationPath: string[], reasoning: string, isValid: boolean, rejectionReason?: string, missingScreens?: string[] }
+```
+
+**What `selectTestsForGoal()` does:**
+1. **Reads ALL SOM Model Files**: Loads all `*.model.ts` files from `e2e/models/` directory
+	 - Extracts screen names from class names (e.g., `LandingScreen` → `Landing`)
+	 - Extracts `navigableScreens` arrays (which screens can be navigated to)
+	 - Extracts `availableFlows` objects (what flows are available on each screen)
+	 - **NEW: Extracts flow metadata** (env vars, navigation targets, user types, keywords) from new format flows
+
+2. **Matches Instruction to Flows**: Analyzes user instruction against flow descriptions
+	 - Compares instruction text to flow names (e.g., "login with phone number")
+	 - Compares instruction text to flow step descriptions
+	 - **NEW: Matches against flow metadata keywords** (e.g., "new user" matches keywords: ['new user', 'create profile'])
+	 - **NEW: Scores flows based on match quality** (exact match > keyword match > step match)
+	 - **NEW: Selects best matching flow** for each screen based on highest score
+	 - Identifies which screens have matching flows
+
+3. **Navigation Path Analysis**: Uses SOM `navigableScreens` to build navigation graph
+	 - **Landing is ALWAYS the entry point** (app starts here)
+	 - Finds shortest path from Landing to target screens using `navigableScreens`
+	 - Adds intermediate screens needed to reach targets
+	 - Builds complete navigation path: `Landing → VerifyOtp → Home`
+	 - **CRITICAL: Includes ALL screens in the path, not just the target screen**
+
+4. **Test File Mapping**: Maps selected screens to actual test files:
+	 - `Landing` → `LandingPage.spec.ts` (**MUST be included if path starts from Landing**)
+	 - `VerifyOtp` → `VerifyOtp.spec.ts`
+	 - `Home` → `HomePage.spec.ts` (if exists)
+	 - **CRITICAL: All screens in navigation path must have test files**
+
+5. **Validates Path Completeness**: Checks if request can be completed
+	 - **Landing MUST be included** if navigation path starts from Landing
+	 - All screens in navigation path must have test files
+	 - All target screens must be reachable from Landing
+	 - Navigation path must be complete (can reach target screen from Landing)
+	 - At least one test file must exist
+	 - If validation fails, request is **REJECTED** with clear error message
+
+6. **Returns Selection Result**:
+	 ```typescript
+	 {
+		 screens: ['Landing', 'VerifyOtp', 'Home'],
+		 testFiles: ['LandingPage', 'VerifyOtpPage'], // Ordered: Landing first, then subsequent screens
+		 navigationPath: ['Landing', 'VerifyOtp', 'Home'], // Complete path from Landing to target
+		 selectedFlows: [ // NEW: Selected flows with metadata for each screen
+			 {
+				 screenName: 'Landing',
+				 flowName: 'login with phone number for new user',
+				 steps: [...],
+				 metadata: {
+					 userType: 'new',
+					 envVars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'},
+					 expectedNavigation: ['VerifyOtp'],
+					 keywords: ['new user', 'create profile']
+				 },
+				 matchScore: 150
+			 },
+			 {
+				 screenName: 'VerifyOtp',
+				 flowName: 'verify otp', // Single flow - OTP is same for all user types
+				 steps: [...],
+				 metadata: undefined // Single flow uses simple array format
+			 }
+		 ],
+		 reasoning: '...',
+		 isValid: true, // false if path is incomplete or impossible
+		 rejectionReason?: 'Missing test files for: OrderPlacement', // if rejected
+		 missingScreens?: ['OrderPlacement'] // screens without test files
+	 }
+	 ```
+
+**CRITICAL: Test Execution Order and Starting Point**
+
+**IMPORTANT: Tests run screen-by-screen, NOT as continuous flows!**
+
+1. **Starting Point Validation**:
+	 - **Landing MUST be included** in `testFiles` if navigation path starts from Landing
+	 - If `navigationPath` includes `Landing`, then `LandingPage` MUST be in `testFiles`
+	 - **AI MUST verify** that `result.testFiles` includes `LandingPage` if path starts from Landing
+	 - If Landing is missing, **REJECT the request** with error: "Landing screen must be included in test files to start from entry point"
+
+2. **Complete Path Requirement**:
+	 - **ALL screens in `navigationPath` must have test files**
+	 - Navigation path must be complete: `Landing → Screen1 → Screen2 → Target`
+	 - Missing any screen in the path means the target cannot be reached
+	 - **AI MUST verify** that all screens in `navigationPath` have corresponding test files
+
+3. **Test Execution Order**:
+	 - Tests execute **sequentially** (one after another)
+	 - Each test starts from where the previous test ended
+	 - **Order matters**: Tests must be ordered according to `navigationPath`
+	 - First test: `LandingPage` (starts from Landing screen)
+	 - Second test: `VerifyOtpPage` (starts from VerifyOtp screen, reached via Landing flow)
+	 - Third test: `HomePage` (starts from Home screen, reached via VerifyOtp flow)
+	 - **AI MUST ensure** test files are ordered correctly: `['LandingPage', 'VerifyOtpPage', 'HomePage']`
+
+4. **Path Validation**:
+	 - **AI MUST verify** that `navigationPath` can actually reach the target screen
+	 - Check that `navigationPath` includes Landing (if not already on target)
+	 - Check that `navigationPath` includes all intermediate screens
+	 - Check that `navigationPath` ends with the target screen
+	 - If path is incomplete, **REJECT the request**
+
+### Step 3: Validate Selection (CRITICAL)
+
+**CRITICAL: Check if selection is valid before running tests:**
+
+```typescript
+if (!result.isValid) {
+	// DO NOT run tests - request is rejected
+	console.error(`❌ Request REJECTED: ${result.rejectionReason}`);
+	if (result.missingScreens) {
+		console.error(`   Missing screens: ${result.missingScreens.join(', ')}`);
+		console.error(`   To create missing tests, use: @e2e-generate @${result.missingScreens[0]}`);
+	}
+	// Inform user and exit
+	return;
+}
+
+// CRITICAL: Additional validation for starting point and complete path
+// 1. Verify Landing is included if path starts from Landing
+if (result.navigationPath.length > 0 && result.navigationPath[0] === 'Landing') {
+	if (!result.testFiles.includes('LandingPage')) {
+		console.error(`❌ Request REJECTED: Landing screen must be included in test files to start from entry point.`);
+		console.error(`   Navigation path starts from Landing but LandingPage is not in test files.`);
+		console.error(`   Test files: ${result.testFiles.join(', ')}`);
+		console.error(`   Navigation path: ${result.navigationPath.join(' → ')}`);
+		return;
+	}
+}
+
+// 2. Verify all screens in navigation path have test files
+const screensWithoutTests = result.navigationPath.filter(screen => {
+	const testFile = findTestFileForScreen(screen, availableTestFiles);
+	return !testFile || !result.testFiles.includes(testFile);
+});
+if (screensWithoutTests.length > 0) {
+	console.error(`❌ Request REJECTED: Not all screens in navigation path have test files.`);
+	console.error(`   Missing test files for screens: ${screensWithoutTests.join(', ')}`);
+	console.error(`   Navigation path: ${result.navigationPath.join(' → ')}`);
+	console.error(`   Test files: ${result.testFiles.join(', ')}`);
+	return;
+}
+
+// 3. Verify navigation path can reach target screen
+const targetScreen = result.navigationPath[result.navigationPath.length - 1];
+if (result.navigationPath.length > 1) {
+	// Check if path is complete (can reach target from Landing)
+	const canReach = canReachScreen('Landing', targetScreen);
+	if (!canReach) {
+		console.error(`❌ Request REJECTED: Cannot reach target screen "${targetScreen}" from Landing.`);
+		console.error(`   Navigation path: ${result.navigationPath.join(' → ')}`);
+		console.error(`   Path is incomplete or invalid.`);
+		return;
+	}
+}
+
+// 4. Verify test files are ordered correctly (matching navigation path order)
+const orderedTestFiles = result.navigationPath
+	.map(screen => findTestFileForScreen(screen, availableTestFiles))
+	.filter((file): file is string => file !== null);
+if (JSON.stringify(result.testFiles) !== JSON.stringify(orderedTestFiles)) {
+	console.warn(`⚠️ Warning: Test files order doesn't match navigation path order.`);
+	console.warn(`   Navigation path: ${result.navigationPath.join(' → ')}`);
+	console.warn(`   Test files: ${result.testFiles.join(', ')}`);
+	console.warn(`   Expected order: ${orderedTestFiles.join(', ')}`);
+	// Reorder test files to match navigation path
+	result.testFiles = orderedTestFiles;
+	console.log(`✅ Reordered test files to match navigation path: ${result.testFiles.join(', ')}`);
+}
+```
+
+**Rejection Reasons:**
+1. **Missing Test Files**: Some screens in navigation path don't have test files
+	 - Example: "login and place order" → OrderPlacement screen has no test file
+	 - Solution: Create E2E tests for missing screens using `@e2e-generate`
+
+2. **Landing Not Included**: Navigation path starts from Landing but LandingPage is not in test files
+	 - Example: Path is `Landing → VerifyOtp` but testFiles only has `['VerifyOtpPage']`
+	 - Solution: Ensure LandingPage is included in test files if path starts from Landing
+
+3. **Incomplete Navigation Path**: Not all screens in navigation path have test files
+	 - Example: Path is `Landing → VerifyOtp → Home` but only `LandingPage` and `HomePage` have tests
+	 - Solution: Create test file for missing screen (VerifyOtpPage)
+
+4. **Unreachable Screens**: Target screens cannot be reached from Landing
+	 - Example: Screen not in navigation graph
+	 - Solution: Check SOM models for correct `navigableScreens` definitions
+
+5. **No Test Files**: No test files found for any identified screens
+	 - Solution: Create E2E tests for required screens
+
+6. **Path Cannot Reach Target**: Navigation path is incomplete or invalid
+	 - Example: Path doesn't actually lead to target screen
+	 - Solution: Verify navigation path is complete and valid
+
+### Step 4: Set Environment Variables
+
+**Only set environment variables if `result.isValid === true` AND all additional validations pass:**
+
+```typescript
+// CRITICAL: Ensure test files are ordered correctly (matching navigation path)
+// Tests execute sequentially, so order matters!
+const orderedTestFiles = result.navigationPath
+	.map(screen => findTestFileForScreen(screen, availableTestFiles))
+	.filter((file): file is string => file !== null);
+
+// Use ordered test files (not original result.testFiles which may be unordered)
+const testFilesToRun = orderedTestFiles.length > 0 ? orderedTestFiles : result.testFiles;
+
+// Set E2E_TEST_FILTER with test file names (ordered by navigation path)
+process.env.E2E_TEST_FILTER = testFilesToRun.join(',');
+// Example: "LandingPage,VerifyOtpPage" (ordered: Landing first, then VerifyOtp)
+
+// CRITICAL: Verify Landing is included if path starts from Landing
+if (result.navigationPath.length > 0 && result.navigationPath[0] === 'Landing') {
+	if (!testFilesToRun.includes('LandingPage')) {
+		throw new Error('LandingPage must be included in test files when path starts from Landing');
+	}
+	// Ensure LandingPage is first in the filter
+	if (testFilesToRun[0] !== 'LandingPage') {
+		const landingIndex = testFilesToRun.indexOf('LandingPage');
+		if (landingIndex > 0) {
+			// Move LandingPage to first position
+			testFilesToRun.splice(landingIndex, 1);
+			testFilesToRun.unshift('LandingPage');
+			process.env.E2E_TEST_FILTER = testFilesToRun.join(',');
+			console.log(`✅ Reordered test files: ${testFilesToRun.join(', ')}`);
+		}
+	}
+}
+
+// NEW: Set flow-specific environment variables from selected flows
+// Each selected flow can define env vars in metadata
+if (result.selectedFlows && result.selectedFlows.length > 0) {
+	console.log('📋 Setting flow-specific environment variables...');
+	for (const flow of result.selectedFlows) {
+		if (flow.metadata?.envVars) {
+			// Set phone number env var if specified
+			if (flow.metadata.envVars.phoneNumber) {
+				const phoneNumber = process.env[flow.metadata.envVars.phoneNumber];
+				if (phoneNumber) {
+					process.env.E2E_PHONE_NUMBER = phoneNumber;
+					console.log(`   ✓ Set E2E_PHONE_NUMBER from ${flow.metadata.envVars.phoneNumber}`);
+				}
+			}
+			// Set OTP env var if specified
+			if (flow.metadata.envVars.otp) {
+				const otp = process.env[flow.metadata.envVars.otp];
+				if (otp) {
+					process.env.E2E_OTP = otp;
+					console.log(`   ✓ Set E2E_OTP from ${flow.metadata.envVars.otp}`);
+				}
+			}
+			// Set flow name for page objects to use
+			process.env[`E2E_FLOW_${flow.screenName.toUpperCase()}`] = flow.flowName;
+			console.log(`   ✓ Set flow for ${flow.screenName}: ${flow.flowName}`);
+		}
+	}
+}
+
+// Set PLATFORM environment variable
+process.env.PLATFORM = platform; // 'ios' or 'android'
+// Default: 'ios' if not specified
+
+// Set DEV or PROD environment variable
+if (environment === 'prod') {
+	process.env.PROD = 'true';
+} else {
+	process.env.DEV = 'true'; // Default
+}
+```
+
+### Step 5: Generate and Display Command
+
+**CRITICAL: Use `generateTestCommand()` to create easy-to-use command for AI to display:**
+
+```typescript
+import {generateTestCommand} from '../utils';
+
+// Generate command string that user can copy and run
+const commandString = generateTestCommand(result, platform, environment);
+
+// Display to user
+console.log('📋 Generated Command:');
+console.log(commandString);
+console.log('\n💡 Copy and run this command in your terminal');
+```
+
+**Example Output:**
+```bash
+📋 Generated Command:
+E2E_TEST_FILTER=LandingPage,VerifyOtpPage \
+	E2E_FLOW_LANDING="login with phone number for new user" \
+	PLATFORM=ios \
+	DEV=true \
+yarn test:ios:dev
+
+💡 Copy and run this command in your terminal
+```
+
+**AI MUST:**
+1. **Always use `generateTestCommand()`** to create the command string
+2. **Display the command clearly** so user can copy it
+3. **Explain what the command does** (which flows, which screens)
+4. **Optionally execute the command** if user wants (but show command first)
+
+### Step 5.1: Create Bash Script (If [CI] Tag Present)
+
+**CRITICAL: If `[CI]` tag is detected, create an executable bash script file at `e2e/execute-e2e.sh`:**
+
+**Requirements:**
+1. **File Location**: `e2e/execute-e2e.sh` (fixed filename)
+2. **Executable Permissions**: Must be created with executable permissions (mode `0o755`)
+3. **Script Format**:
+	 - **Shebang**: `#!/usr/bin/env bash` (first line)
+	 - **Comments**: 
+		 - Description of what the script does (goal)
+		 - Navigation path (e.g., "Landing → VerifyOtp → Home")
+		 - Required environment variables (if flow metadata specifies them)
+		 - Instructions to run from project root
+	 - **Environment Variables**: All env vars from the generated command, each on a separate line with line continuation (`\`)
+		 - `E2E_TEST_FILTER` (comma-separated test file names)
+		 - `E2E_FLOW_[SCREENNAME]` (for each flow with metadata)
+		 - `PLATFORM` (ios or android)
+		 - `DEV=true` or `PROD=true`
+	 - **Yarn Command**: Final command (`yarn test:ios:dev`, `yarn test:android:prod`, etc.)
+
+**Example Generated Script:**
+```bash
+#!/usr/bin/env bash
+# Run E2E: login as returning user (Landing → VerifyOtp → Home).
+# Ensure EXISTING_USER_PHONE_NUMBER and DEV_USER_OTP are set in env if using env-based credentials.
+# Run from project root: ./e2e/execute-e2e.sh
+
+E2E_TEST_FILTER=LandingPage,VerifyOtpPage \
+	E2E_FLOW_LANDING="login with phone number for returning user" \
+	PLATFORM=ios \
+	DEV=true \
+	yarn test:ios:dev
+```
+
+**AI MUST:**
+1. **Check for `[CI]` tag** in user instruction
+2. **Create bash script file** at `e2e/execute-e2e.sh` with executable permissions
+3. **Include all environment variables** from the generated command
+4. **Include helpful comments** describing the script purpose, navigation path, and required env vars
+5. **Display script location** to user after creation
+
+### Step 6: Run Tests (Optional)
+
+**Only run tests if `result.isValid === true` AND user explicitly wants to run:**
+
+**Use the appropriate npm script from package.json:**
+
+```typescript
+// Determine command based on platform and environment
+const command = platform === 'ios' 
+	? (environment === 'prod' ? 'test:ios:prod' : 'test:ios:dev')
+	: (environment === 'prod' ? 'test:android:prod' : 'test:android:dev');
+
+// Run: yarn test:ios:dev or yarn test:android:dev
+// NOTE: Only run if user explicitly wants to execute, otherwise just show the command
+```
+
+**Commands available:**
+- `yarn test:ios:dev` - iOS dev environment
+- `yarn test:ios:prod` - iOS prod environment
+- `yarn test:android:dev` - Android dev environment
+- `yarn test:android:prod` - Android prod environment
+
+### Step 7: Display Results
+
+**If request was rejected, show rejection message:**
+
+```
+❌ Request REJECTED
+
+Cannot complete request: Missing test files for required screens: OrderPlacement.
+The navigation path requires these screens but E2E tests are not available.
+Please create tests for: OrderPlacement
+
+Navigation path: Landing → VerifyOtp → Home → OrderPlacement
+Missing screens: OrderPlacement
+
+To create missing tests, use: @e2e-generate @OrderPlacement
+```
+
+**If request is valid, show selection summary:**
+
+```
+🎯 E2E Test Selection for: "new user login"
+
+📱 Platform: iOS (default)
+🔧 Environment: dev (default)
+
+✅ Selected Screens:
+	 - Landing (phone number entry) [STARTING POINT]
+	 - VerifyOtp (OTP verification)
+	 - RegisterUser (user registration) [TARGET]
+
+📄 Test Files (ordered by navigation path):
+	 - LandingPage.spec.ts (executes first - starts from Landing)
+	 - VerifyOtpPage.spec.ts (executes second - starts from VerifyOtp, reached via Landing flow)
+	 - RegisterUserPage.spec.ts (executes third - starts from RegisterUser, reached via VerifyOtp flow)
+
+🎯 Selected Flows (with metadata):
+	 - Landing: "login with phone number for new user"
+		 • User type: new
+		 • Env vars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'}
+		 • Expected navigation: VerifyOtp
+		 • Match score: 150
+	 - VerifyOtp: "verify otp" (single flow - OTP is same for all user types)
+		 • Uses: DEV_USER_OTP
+		 • Expected navigation: RegisterUser or Home (based on user type from phone number)
+
+🛤️ Navigation Path:
+	 Landing → VerifyOtp → RegisterUser
+	 ✓ Complete path from starting point (Landing) to target (RegisterUser)
+	 ✓ All screens in path have test files
+	 ✓ Tests ordered correctly for sequential execution
+	 ✓ Flow-specific env vars set from metadata
+
+📋 Generated Command:
+E2E_TEST_FILTER=LandingPage,VerifyOtpPage,RegisterUserPage \
+	E2E_FLOW_LANDING="login with phone number for new user" \
+	PLATFORM=ios \
+	DEV=true \
+yarn test:ios:dev
+
+💡 Copy and run this command in your terminal
+```
+
+**CRITICAL: Display validation status:**
+- ✅ Landing included: Yes (required for starting point)
+- ✅ Complete path: Yes (all screens in path have tests)
+- ✅ Path reaches target: Yes (can reach Home from Landing)
+- ✅ Test order: Correct (matches navigation path)
+
+## How Screen Selection Works
+
+**The system reads SOM files directly - no hardcoded keywords needed!**
+
+1. **Flow Matching**: User instruction is matched against `availableFlows` in SOM files
+	 - Example: "login with phone number" matches `LandingScreen.availableFlows['login with phone number']`
+	 - Example: "verify otp" matches `VerifyOtpScreen.availableFlows['verify otp']`
+	 - **NEW: Multiple flows per screen** - Screens can have multiple flows with metadata (env vars, navigation targets, user types)
+	 - **NEW: Intelligent flow selection** - System matches flows based on keywords, user type, and instruction intent
+	 - **Example**: Instruction "new user login" matches Landing flow "login with phone number for new user" with metadata:
+		 ```typescript
+		 {
+			 userType: 'new',
+			 envVars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'},
+			 expectedNavigation: ['VerifyOtp'],
+			 keywords: ['new user', 'create profile', 'register']
+		 }
+		 ```
+		 - VerifyOtp screen uses single flow "verify otp" (OTP is same for all user types, uses DEV_USER_OTP)
+
+2. **Multi-Flow Support (NEW)**:
+	 - **Flow Metadata**: Each flow can have metadata with:
+		 - `description`: Human-readable description of the flow
+		 - `userType`: User type (e.g., 'new', 'returning', 'existing_new')
+		 - `envVars`: Environment variables to use (e.g., `{phoneNumber: 'ENV_VAR_NAME'}` for Landing, or `{otp: 'ENV_VAR_NAME'}` for VerifyOtp)
+		 - `expectedNavigation`: Expected navigation targets after flow completion
+		 - `keywords`: Keywords for matching user instructions (e.g., ['new user', 'create profile', 'register'])
+	 - **Flow Selection**: System selects best matching flow based on:
+		 - Exact flow name match (highest score)
+		 - Keyword matches from metadata (high score)
+		 - User type matching (bonus score)
+		 - Step description matches (medium score)
+	 - **Example**: Instruction "new user login" matches Landing flow "login with phone number for new user" with metadata:
+		 ```typescript
+		 {
+			 userType: 'new',
+			 envVars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'},
+			 expectedNavigation: ['VerifyOtp'],
+			 keywords: ['new user', 'create profile', 'register']
+		 }
+		 ```
+		 - VerifyOtp screen uses single flow because OTP entry is the same for all user types. Navigation outcome (RegisterUser vs Home) is determined by backend based on phone number used in Landing screen, not by VerifyOtp flow.
+
+3. **Navigation Graph**: Built from `navigableScreens` arrays in SOM files
+	 - `Landing.navigableScreens: ['VerifyOtp', 'Terms', 'Home']` → Landing can navigate to these screens
+	 - `VerifyOtp.navigableScreens: ['RegisterUser', 'Home']` → VerifyOtp can navigate to these screens
+	 - System finds shortest path from Landing (entry point) to target screens
+	 - **NEW: Flow-specific navigation** - Navigation targets can be specified per flow in metadata
+
+4. **Fallback Matching**: If no flow matches, checks:
+	 - Screen names directly (e.g., "home" matches "Home" screen)
+	 - `navigableScreens` context (e.g., "home" found in `VerifyOtp.navigableScreens`)
+
+## Critical Requirements: Starting Point and Complete Path
+
+**IMPORTANT: Tests run screen-by-screen, NOT as continuous flows!**
+
+### Why Starting Point Matters
+
+1. **Tests Execute Sequentially**: Each test file runs independently, one after another
+	 - Test 1: `LandingPage.spec.ts` executes first
+	 - Test 2: `VerifyOtpPage.spec.ts` executes second (starts from VerifyOtp screen)
+	 - Test 3: `HomePage.spec.ts` executes third (starts from Home screen)
+
+2. **Each Test Starts from Previous Test's End State**:
+	 - `LandingPage` test completes → App is on VerifyOtp screen
+	 - `VerifyOtpPage` test starts → Assumes app is on VerifyOtp screen
+	 - `VerifyOtpPage` test completes → App is on Home screen
+	 - `HomePage` test starts → Assumes app is on Home screen
+
+3. **If Landing is Missing**:
+	 - If path is `Landing → VerifyOtp → Home` but only `VerifyOtpPage` and `HomePage` are run
+	 - `VerifyOtpPage` test starts → App might not be on VerifyOtp screen (could be anywhere)
+	 - Test fails because it cannot find VerifyOtp screen elements
+	 - **Solution**: Always include `LandingPage` if path starts from Landing
+
+4. **If Path is Incomplete**:
+	 - If path is `Landing → VerifyOtp → Home` but only `LandingPage` and `HomePage` are run
+	 - `LandingPage` test completes → App is on VerifyOtp screen
+	 - `HomePage` test starts → App is on VerifyOtp screen (not Home)
+	 - Test fails because it cannot find Home screen elements
+	 - **Solution**: Include ALL screens in navigation path
+
+### Validation Rules
+
+**AI MUST verify these before running tests:**
+
+1. ✅ **Landing Included**: If `navigationPath[0] === 'Landing'`, then `LandingPage` MUST be in `testFiles`
+2. ✅ **Complete Path**: ALL screens in `navigationPath` MUST have test files
+3. ✅ **Path Reaches Target**: Navigation path must actually lead to target screen
+4. ✅ **Correct Order**: Test files must be ordered to match navigation path (Landing first)
+
+**If any validation fails, REJECT the request immediately.**
+
+## Error Handling & Rejection
+
+**The system will REJECT requests when:**
+
+1. **Missing Test Files**: Any screen in the navigation path doesn't have a test file
+	 - Example: `@e2e-run login and place order`
+	 - If OrderPlacement screen has no test file → REJECTED
+	 - Error: "Missing test files for required screens: OrderPlacement"
+
+2. **Unreachable Screens**: Target screens cannot be reached from Landing
+	 - Example: Screen not in navigation graph
+	 - Error: "Cannot reach target screen(s) from Landing: OrderPlacement"
+
+3. **No Test Files**: No test files found for any identified screens
+	 - Error: "No test files found for any identified screens"
+
+**When request is REJECTED:**
+- **DO NOT run tests** - the path is incomplete
+- Display clear rejection message with reason
+- List missing screens (if any)
+- Suggest creating missing tests using `@e2e-generate @ScreenName`
+- Exit gracefully without executing test command
+
+**Example Rejection:**
+```
+User: @e2e-run login and place order
+
+❌ Request REJECTED
+
+Cannot complete request: Missing test files for required screens: OrderPlacement.
+The navigation path requires these screens but E2E tests are not available.
+Please create tests for: OrderPlacement
+
+Navigation path: Landing → VerifyOtp → Home → OrderPlacement
+Missing screens: OrderPlacement
+
+To create missing tests, use: @e2e-generate @OrderPlacement
+```
+
+## Implementation Pattern
+
+**Complete AI Implementation:**
+
+```typescript
+// 1. Parse user instruction
+const instruction = userInput.replace(/@e2e-run\s*/i, '').trim();
+const hasCITag = /\[CI\]/i.test(instruction);
+const instructionWithoutCI = instruction.replace(/\[CI\]\s*/gi, '').trim();
+const platformMatch = instructionWithoutCI.match(/^(android|ios):\s*/i);
+const platform = platformMatch ? platformMatch[1].toLowerCase() : 'ios'; // Default to iOS
+const environmentMatch = instructionWithoutCI.match(/(dev|prod):\s*/i);
+const environment = environmentMatch ? environmentMatch[1].toLowerCase() : 'dev'; // Default to dev
+const goal = instructionWithoutCI.replace(/^(android|ios|dev|prod):\s*/gi, '').trim();
+
+// 2. Select tests
+import {selectTestsForGoal, findAllTestFiles, findTestFileForScreen} from './e2e/utils';
+const selection = selectTestsForGoal(goal);
+const availableTestFiles = findAllTestFiles();
+
+// 3. CRITICAL: Validate selection before proceeding
+if (!selection.isValid) {
+	console.error(`❌ Request REJECTED: ${selection.rejectionReason}`);
+	if (selection.missingScreens) {
+		console.error(`   Missing screens: ${selection.missingScreens.join(', ')}`);
+		console.error(`   To create missing tests, use: @e2e-generate @${selection.missingScreens[0]}`);
+	}
+	// Exit - do not run tests
+	process.exit(1);
+}
+
+// 4. CRITICAL: Additional validations for starting point and complete path
+// 4.1. Verify Landing is included if path starts from Landing
+if (selection.navigationPath.length > 0 && selection.navigationPath[0] === 'Landing') {
+	if (!selection.testFiles.includes('LandingPage')) {
+		console.error(`❌ Request REJECTED: Landing screen must be included in test files to start from entry point.`);
+		console.error(`   Navigation path starts from Landing but LandingPage is not in test files.`);
+		console.error(`   Test files: ${selection.testFiles.join(', ')}`);
+		console.error(`   Navigation path: ${selection.navigationPath.join(' → ')}`);
+		process.exit(1);
+	}
+}
+
+// 4.2. Verify all screens in navigation path have test files
+const screensWithoutTests = selection.navigationPath.filter(screen => {
+	const testFile = findTestFileForScreen(screen, availableTestFiles);
+	return !testFile || !selection.testFiles.includes(testFile);
+});
+if (screensWithoutTests.length > 0) {
+	console.error(`❌ Request REJECTED: Not all screens in navigation path have test files.`);
+	console.error(`   Missing test files for screens: ${screensWithoutTests.join(', ')}`);
+	console.error(`   Navigation path: ${selection.navigationPath.join(' → ')}`);
+	console.error(`   Test files: ${selection.testFiles.join(', ')}`);
+	process.exit(1);
+}
+
+// 4.3. Verify navigation path can reach target screen
+import {canReachScreen} from './e2e/utils/navigationPathFinder';
+const targetScreen = selection.navigationPath[selection.navigationPath.length - 1];
+if (selection.navigationPath.length > 1) {
+	const canReach = canReachScreen('Landing', targetScreen);
+	if (!canReach) {
+		console.error(`❌ Request REJECTED: Cannot reach target screen "${targetScreen}" from Landing.`);
+		console.error(`   Navigation path: ${selection.navigationPath.join(' → ')}`);
+		console.error(`   Path is incomplete or invalid.`);
+		process.exit(1);
+	}
+}
+
+// 4.4. CRITICAL: Order test files to match navigation path order
+// Tests execute sequentially, so order matters!
+const orderedTestFiles = selection.navigationPath
+	.map(screen => findTestFileForScreen(screen, availableTestFiles))
+	.filter((file): file is string => file !== null);
+
+// Ensure LandingPage is first if path starts from Landing
+if (orderedTestFiles.length > 0 && selection.navigationPath[0] === 'Landing') {
+	if (orderedTestFiles[0] !== 'LandingPage') {
+		const landingIndex = orderedTestFiles.indexOf('LandingPage');
+		if (landingIndex > 0) {
+			orderedTestFiles.splice(landingIndex, 1);
+			orderedTestFiles.unshift('LandingPage');
+		}
+	}
+}
+
+// Use ordered test files (not original selection.testFiles which may be unordered)
+const testFilesToRun = orderedTestFiles.length > 0 ? orderedTestFiles : selection.testFiles;
+
+// 5. Set environment variables (only if all validations pass)
+process.env.E2E_TEST_FILTER = testFilesToRun.join(',');
+process.env.PLATFORM = platform;
+if (environment === 'prod') {
+	process.env.PROD = 'true';
+} else {
+	process.env.DEV = 'true';
+}
+
+// 6. Generate and display command
+import {generateTestCommand} from './e2e/utils';
+const commandString = generateTestCommand(selection, platform, environment);
+
+console.log(`🎯 E2E Test Selection for: "${goal}"`);
+console.log(`📱 Platform: ${platform} (${environment})`);
+console.log(`✅ Selected Screens: ${selection.screens.join(', ')}`);
+console.log(`📄 Test Files (ordered): ${testFilesToRun.map(f => `${f}.spec.ts`).join(', ')}`);
+console.log(`🛤️ Navigation Path: ${selection.navigationPath.join(' → ')}`);
+console.log(`   ✓ Landing included: ${testFilesToRun.includes('LandingPage') ? 'Yes' : 'No'}`);
+console.log(`   ✓ Complete path: Yes (all screens have tests)`);
+console.log(`   ✓ Path reaches target: Yes`);
+
+if (selection.selectedFlows && selection.selectedFlows.length > 0) {
+	console.log(`\n🎯 Selected Flows:`);
+	for (const flow of selection.selectedFlows) {
+		console.log(`   - ${flow.screenName}: "${flow.flowName}"`);
+		if (flow.metadata) {
+			if (flow.metadata.userType) {
+				console.log(`     • User type: ${flow.metadata.userType}`);
+			}
+			if (flow.metadata.envVars) {
+				console.log(`     • Env vars: ${JSON.stringify(flow.metadata.envVars)}`);
+			}
+			if (flow.metadata.expectedNavigation) {
+				console.log(`     • Expected navigation: ${flow.metadata.expectedNavigation.join(', ')}`);
+			}
+		}
+	}
+}
+
+console.log(`\n📋 Generated Command:`);
+console.log(commandString);
+console.log(`\n💡 Copy and run this command in your terminal`);
+
+// 7. Create bash script if [CI] tag is present
+if (hasCITag) {
+	// Create executable bash script at e2e/execute-e2e.sh
+	// Include all environment variables from the generated command
+	// Include helpful comments (goal, navigation path, required env vars)
+	// Make script executable (mode 0o755)
+	// Display script location to user
+}
+
+// 8. Optionally run tests (only if user explicitly wants to execute)
+// NOTE: AI should show the command first and ask user if they want to run it
+// For now, just show the command - user can decide to run it manually
+```
+
+## AI Checklist
+
+When user writes `@e2e-run "instructions"`:
+
+- [ ] Parse instruction to extract platform, environment, goal, and `[CI]` tag
+- [ ] Use `selectTestsForGoal()` to identify screens and test files
+- [ ] **CRITICAL: Check `result.isValid` - if false, REJECT request**
+- [ ] **CRITICAL: Verify Landing is included** - if `navigationPath[0] === 'Landing'`, ensure `LandingPage` is in `testFiles`
+- [ ] **CRITICAL: Verify complete path** - all screens in `navigationPath` must have test files
+- [ ] **CRITICAL: Verify path reaches target** - check that navigation path can actually reach target screen
+- [ ] **CRITICAL: Order test files correctly** - test files must match navigation path order (Landing first)
+- [ ] If rejected, display rejection message with missing screens and exit
+- [ ] If valid, **reorder test files** to match navigation path order (Landing first)
+- [ ] Set `E2E_TEST_FILTER` environment variable with **ordered** test file names (Landing first)
+- [ ] Set `PLATFORM` environment variable (default: 'ios')
+- [ ] Set `DEV` or `PROD` environment variable (default: 'dev')
+- [ ] Display selection summary to user (including validation status)
+- [ ] Generate and display command string
+- [ ] **If `[CI]` tag is present, create executable bash script** at `e2e/execute-e2e.sh` (fixed filename)
+- [ ] **Make bash script executable** using file mode `0o755`
+- [ ] **Include all environment variables** in bash script (E2E_TEST_FILTER, flow env vars, PLATFORM, DEV/PROD)
+- [ ] **Include helpful comments** in bash script (description, navigation path, required env vars)
+- [ ] Display bash script location to user after creation
+- [ ] Run appropriate npm script (`test:ios:dev`, `test:android:prod`, etc.) - only if user explicitly wants to execute
+- [ ] **NEVER run tests if `isValid === false`** - path is incomplete
+- [ ] **NEVER run tests if Landing is missing** - cannot start from entry point
+- [ ] **NEVER run tests if path is incomplete** - cannot reach target screen
+
+## Multi-Flow Support in SOM Files
+
+**Screens can define multiple flows with metadata for dynamic test execution.**
+
+### Flow Format
+
+**Old Format (Simple Array - Still Supported):**
+```typescript
+availableFlows = {
+	'flow name': [
+		'step 1 description',
+		'step 2 description',
+	],
+};
+```
+
+**New Format (With Metadata - Recommended):**
+```typescript
+availableFlows = {
+	'flow name': {
+		steps: [
+			'step 1 description',
+			'step 2 description',
+		],
+		metadata: {
+			description: 'Human-readable description of the flow',
+			userType: 'new' | 'returning' | 'existing_new', // User type for this flow
+			envVars: {
+				phoneNumber: 'ENV_VAR_NAME', // Environment variable for phone number
+				otp: 'ENV_VAR_NAME', // Environment variable for OTP code
+			},
+			expectedNavigation: ['Screen1', 'Screen2'], // Expected navigation targets
+			keywords: ['keyword1', 'keyword2'], // Keywords for matching user instructions
+		},
+	},
+};
+```
+
+### Example: Landing Screen with Multiple Flows (Phone Number Variations)
+
+```typescript
+availableFlows = {
+	'login with phone number for new user': {
+		steps: [
+			'on initial page load there can be ATT popup, if so dismiss it by tapping Allow or Dont Allow',
+			'tap on country code dropdown to open country list',
+			'type in country Pakistan filter input to filter country list',
+			'select first country from the country list after filtering',
+			'enter phone number in phone input field, phone number is in {NEW_USER_PHONE_NUMBER}',
+			'tap on continue button to proceed to OTP screen',
+		],
+		metadata: {
+			description: 'Login with phone number for a new user who needs to register',
+			userType: 'new',
+			envVars: {
+				phoneNumber: 'NEW_USER_PHONE_NUMBER',
+			},
+			expectedNavigation: ['VerifyOtp'],
+			keywords: ['new user', 'create profile', 'register', 'new profile', 'sign up'],
+		},
+	},
+	'login with phone number for returning user': {
+		steps: [
+			'on initial page load there can be ATT popup, if so dismiss it by tapping Allow or Dont Allow',
+			'tap on country code dropdown to open country list',
+			'type in country Pakistan filter input to filter country list',
+			'select first country from the country list after filtering',
+			'enter phone number in phone input field, phone number is in {EXISTING_USER_PHONE_NUMBER}',
+			'tap on continue button to proceed to OTP screen',
+		],
+		metadata: {
+			description: 'Login with phone number for a returning/registered user',
+			userType: 'returning',
+			envVars: {
+				phoneNumber: 'EXISTING_USER_PHONE_NUMBER',
+			},
+			expectedNavigation: ['VerifyOtp'],
+			keywords: ['returning user', 'existing user', 'login', 'sign in', 'returner'],
+		},
+	},
+};
+```
+
+### Example: VerifyOtp Screen with Single Flow (OTP is Same for All)
+
+```typescript
+availableFlows = {
+	'verify otp': [
+		'screen opens displaying instruction text with phone number, OTP input field, and resend code button.',
+		'user can resend the OTP code by tapping the resend code button.',
+		'OTP is automatically submitted when all 4 digits are entered, otp is in {DEV_USER_OTP} & User will get redirected to RegisterUser or Home screen after successful OTP verification based on user type',
+	],
+};
+```
+
+**Note:** VerifyOtp uses single flow because OTP entry is the same for all user types. Navigation outcome (RegisterUser vs Home) is determined by backend based on phone number used in Landing screen, not by VerifyOtp flow.
+
+### Flow Selection Logic
+
+When user provides instruction like "new user login":
+1. System matches keywords: "new user" → matches `keywords: ['new user', 'create profile']` in Landing flows
+2. System scores flows: "login with phone number for new user" gets high score (150)
+3. System selects flow: "login with phone number for new user" (Landing screen)
+4. System sets env vars: `E2E_PHONE_NUMBER` from `NEW_USER_PHONE_NUMBER`
+5. System expects navigation: `VerifyOtp` (from `expectedNavigation`)
+6. For VerifyOtp screen: Uses single flow with `DEV_USER_OTP` (same OTP for all user types)
+
+### When to Use Multiple Flows vs Single Flow
+
+**Use Multiple Flows When:**
+- Screen has variations that require different inputs (e.g., different phone numbers for different user types)
+- Different user types need different data (e.g., Landing screen: new user vs returning user phone numbers)
+- Example: **Landing screen** - has 3 flows for different phone numbers (new user, returning user, existing new user)
+
+**Use Single Flow When:**
+- Screen action is the same regardless of user type (e.g., entering OTP is same for all users)
+- Only the input data varies, but the action itself doesn't change
+- Navigation outcome is determined by backend based on previous screen's data, not by the current screen's flow
+- Example: **VerifyOtp screen** - single flow because OTP entry is same for all, navigation (RegisterUser vs Home) is determined by phone number used in Landing screen
+
+### Best Practices
+
+1. **Use descriptive flow names**: "login with phone number for new user" not "login 1"
+2. **Include relevant keywords**: Add all variations users might use (e.g., "new user", "create profile", "register")
+3. **Specify expected navigation**: Helps system validate flow completion
+4. **Use consistent env var naming**: Follow existing patterns (e.g., `NEW_USER_PHONE_NUMBER`, `DEV_USER_OTP`)
+5. **Document user types**: Helps system understand flow context
+6. **Use single flow when action is same**: Don't create multiple flows if only data varies (e.g., OTP is same for all users)
+
+## Reference Files
+
+- **Test Selector**: `e2e/utils/testSelector.ts` - Main utility for test selection and validation (includes flow selection)
+- **Navigation Path Finder**: `e2e/utils/navigationPathFinder.ts` - Navigation path analysis
+- **WebdriverIO Config**: `e2e/wdio.conf.ts` - Test execution configuration with E2E_TEST_FILTER support
+- **Package.json**: `package.json` - Test run commands (lines 16-19)
+- **SOM Models**: `e2e/models/*.model.ts` - Screen Object Models with navigation context and flow metadata
