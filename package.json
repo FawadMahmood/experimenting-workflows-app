@@ -2,11 +2,12 @@
   "name": "experimenting-workflow",
   "version": "1.0.0",
   "description": "Building new workflow file",
-  "main": "index.js",
+  "main": "index.ts",
   "type": "module",
   "scripts": {
-    "start": "probot run ./index.js",
-    "dev": "smee -u $WEBHOOK_PROXY_URL -t http://localhost:3000/api/github/webhooks & probot run ./index.js",
+    "start": "ts-node ./index.ts",
+    "dev": "smee -u $WEBHOOK_PROXY_URL -t http://localhost:3000/api/github/webhooks & ts-node ./index.ts",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,9 +16,12 @@
   "dependencies": {
     "@octokit/webhooks": "^14.2.0",
     "octokit": "^5.0.5",
-    "probot": "^14.2.4"
+    "probot": "^14.2.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
+    "@types/node": "^25.2.1",
     "smee-client": "^5.0.0"
   }
 }
