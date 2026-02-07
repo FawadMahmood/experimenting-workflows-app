@@ -1,0 +1,1805 @@
+---
+alwaysApply: true
+---
+You are an AI agent tasked with generating end-to-end (E2E) tests for a React Native application using Appium. You must generate Page Object classes, Spec files, and a comprehensive guideline document based on the Screen Object Model (SOM) provided for each screen.
+
+**IMPORTANT: All tests MUST use the Recovery Mechanism for automatic state detection, interruption handling, and failure recovery.**
+
+**IMPORTANT: All tests MUST include Screen Tracking for screen detection, transition tracking, and analytics.**
+
+If user write @e2e-generate @Screen do all of these
+
+**When user provides context about flows:**
+- If user mentions specific flows (e.g., "add flow for new user"), add those flows to SOM with metadata
+- If user mentions multiple flows, add all of them to SOM
+- Always use new format (object with steps and metadata) when adding new flows
+- Ensure page objects support all flows dynamically (they should already if following the pattern)
+
+## Rules & Requirements
+
+### 1. Screen Object Model (SOM)
+
+Use the SOM as the single source of truth.
+
+**⚠️ IMPORTANT: For navigation analysis and flow lookup, AI should read `e2e/models/som-metadata.ts` instead of reading all individual SOM files. Only read specific `[ScreenName].model.ts` files when detailed locator information is needed for that specific screen.**
+
+The SOM defines:
+- Locators (resourceId, name, text)
+- Navigation context (navigableScreens - array of screens that can be navigated to from this screen)
+- Screen flow steps (availableFlows) - only if provided in SOM
+- Screen reference file
+- Environment variables (optional) - defined in flow steps using {ENV_VAR_NAME} pattern or in flow metadata
+
+Only create tests for the specified screen.
+
+**SOM Metadata File (REQUIRED):**
+
+**CRITICAL: AI MUST maintain `e2e/models/som-metadata.ts` when creating or updating any SOM file.**
+
+The SOM metadata file provides a concise summary of all SOM files for quick AI analysis without reading individual SOM files. This file is essential for:
+- Navigation path analysis (finding paths between screens)
+- Understanding screen relationships (which screens navigate to which)
+- Quick flow lookup (available flows per screen)
+- Screen detection (identifying selectors)
+
+**Metadata File Structure:**
+- `screenName`: Screen identifier
+- `screenCodePath`: Path to actual screen code
+- `navigableScreens`: Screens reachable from this screen
+- `flows`: Available flows with abbreviated steps and metadata
+- `identifyingSelector`: Primary selector for screen detection (from SOM)
+
+**Update Rules (MANDATORY):**
+1. **When creating a new SOM file:** Add entry to `SOM_METADATA` immediately
+2. **When updating an existing SOM file:** Update corresponding entry in `SOM_METADATA` immediately
+3. **When adding/removing flows:** Update flows object in metadata
+4. **When changing navigableScreens:** Update navigableScreens array in metadata
+5. **When changing identifying selector:** Update identifyingSelector in metadata
+
+**Keeping Metadata Concise:**
+- Use abbreviated step descriptions (e.g., "enter phone {ENV_VAR}" instead of full sentence)
+- Omit verbose descriptions (keep only essential info)
+- Use flow names as keys (not full descriptions)
+- Include only essential metadata (userType, envVars, expectedNavigation, keywords)
+- Use arrow notation for navigation (e.g., "tap continue → VerifyOtp")
+
+**Example Metadata Entry:**
+```typescript
+Landing: {
+  screenName: 'Landing',
+  screenCodePath: 'src/features/auth/screens/LandingScreen.tsx',
+  navigableScreens: ['VerifyOtp', 'Terms', 'Home'],
+  flows: {
+    'login with phone number for new user': {
+      steps: [
+        'dismiss ATT popup if present',
+        'tap country dropdown',
+        'filter country list (Pakistan)',
+        'select first country',
+        'enter phone {NEW_USER_PHONE_NUMBER}',
+        'tap continue → VerifyOtp',
+      ],
+      metadata: {
+        userType: 'new',
+        envVars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'},
+        expectedNavigation: ['VerifyOtp'],
+        keywords: ['new user', 'register', 'sign up'],
+      },
+    },
+  },
+  identifyingSelector: 'phone-number-add:screen:title',
+},
+```
+
+**Helper Functions:**
+The metadata file includes helper functions for AI analysis:
+- `getScreensNavigatingTo(targetScreen)`: Find all screens that navigate to a target
+- `findNavigationPath(sourceScreen, targetScreen)`: Find shortest navigation path
+- `getScreenFlows(screenName)`: Get all flows for a screen
+- `getFlowMetadata(screenName, flowName)`: Get metadata for a specific flow
+
+**AI MUST:**
+1. **Read metadata file INSTEAD of reading all SOM files** - Use `e2e/models/som-metadata.ts` for navigation analysis, flow lookup, and screen relationships
+2. **Only read individual SOM files when necessary** - Only read specific `[ScreenName].model.ts` files when:
+   - Need detailed locator information for a specific screen (not available in metadata)
+   - Need to verify exact selector patterns
+   - Metadata file is incomplete or outdated (then update metadata immediately)
+3. **Update metadata file IMMEDIATELY** when creating/updating SOM files
+4. **Use metadata file** for navigation path validation (Section 13)
+5. **Keep metadata concise** - use abbreviations and omit verbose descriptions
+
+**Reading Strategy:**
+- **For navigation analysis**: Read `som-metadata.ts` only (contains all `navigableScreens` arrays)
+- **For flow information**: Read `som-metadata.ts` only (contains all flows with metadata)
+- **For screen relationships**: Read `som-metadata.ts` only (use helper functions)
+- **For detailed locators**: Read specific `[ScreenName].model.ts` file only when needed for that screen
+- **Never read all SOM files** - Use metadata file as the primary source
+
+**Multi-Flow Support (NEW):**
+
+Screens can have multiple flows with different metadata. Each flow can have:
+- Different user types (new user, returning user, existing new user)
+- Different environment variables (phone numbers, OTP codes)
+- Different navigation targets (RegisterUser, Home, etc.)
+- Different keywords for matching user instructions
+
+**Flow Format:**
+
+**Old Format (Simple Array - Still Supported):**
+```typescript
+availableFlows = {
+  'flow name': [
+    'step 1 description',
+    'step 2 description',
+  ],
+};
+```
+
+**New Format (With Metadata - Recommended for Multiple Flows):**
+```typescript
+availableFlows = {
+  'flow name': {
+    steps: [
+      'step 1 description',
+      'step 2 description',
+    ],
+    metadata: {
+      description: 'Human-readable description',
+      userType: 'new' | 'returning' | 'existing_new',
+      envVars: {
+        phoneNumber: 'ENV_VAR_NAME',
+        otp: 'ENV_VAR_NAME',
+      },
+      expectedNavigation: ['Screen1', 'Screen2'],
+      keywords: ['keyword1', 'keyword2'],
+    },
+  },
+};
+```
+
+**When generating tests for screens with multiple flows:**
+1. **Support all flows** - Generate page object methods that can execute any flow
+2. **Use flow name parameter** - Main flow method should accept optional `flowName` parameter
+3. **Default to first flow** - If no flow name provided, use first available flow
+4. **Extract env vars from metadata** - Use flow metadata envVars if available, otherwise extract from steps
+5. **Use expectedNavigation from metadata** - Use flow metadata expectedNavigation for navigation validation
+
+**When to Use Multiple Flows vs Single Flow:**
+
+**Use Multiple Flows When:**
+- Screen has variations that require different inputs (e.g., different phone numbers for different user types)
+- Different user types need different data (e.g., Landing screen: new user vs returning user phone numbers)
+- Navigation outcomes depend on user type (though this is usually determined by backend, not flow itself)
+- Example: **Landing screen** - has 3 flows for different phone numbers (new user, returning user, existing new user)
+
+**Use Single Flow When:**
+- Screen action is the same regardless of user type (e.g., entering OTP is same for all users)
+- Only the input data varies, but the action itself doesn't change
+- Navigation outcome is determined by backend based on previous screen's data, not by the current screen's flow
+- Example: **VerifyOtp screen** - single flow because OTP entry is same for all, navigation (RegisterUser vs Home) is determined by phone number used in Landing screen
+
+**Environment Variables in SOM:**
+
+SOM files can define environment variables in flow steps using the pattern `{ENV_VAR_NAME}`. This allows secure testing with sensitive data like OTP codes, API keys, etc.
+
+**Pattern:**
+- Use curly braces: `{ENV_VAR_NAME}`
+- Example: `'OTP is automatically submitted when all 4 digits are entered, otp is in {DEV_USER_OTP}'`
+- Example: `'user enters password from {EXISTING_USER_PASSWORD}'`
+
+**AI MUST:**
+1. **Parse flow steps** to detect `{ENV_VAR_NAME}` patterns
+2. **Extract environment variable names** from flow steps
+3. **Use `process.env.ENV_VAR_NAME`** in generated test code
+4. **Provide fallback values** if environment variable is not set (for non-sensitive test data)
+5. **Document environment variables** in test comments
+
+**Implementation Pattern:**
+
+```typescript
+// In Page Object class, extract env vars from flow steps:
+const flowStep = this.model.availableFlows['flow name'].find(step =>
+  step.includes('{ENV_VAR_NAME}'),
+);
+const envVarValue = flowStep
+  ? this.extractEnvVarFromStep(flowStep, 'ENV_VAR_NAME')
+  : null;
+
+// Helper method to extract environment variable:
+private extractEnvVarFromStep(stepName: string, envVarName: string): string | null {
+  const pattern = new RegExp(`\\{${envVarName}\\}`, 'i');
+  if (pattern.test(stepName)) {
+    return process.env[envVarName] || null;
+  }
+  return null;
+}
+
+// Use in flow method:
+const valueToUse = explicitParam || envVarValue || process.env.ENV_VAR_NAME || fallbackValue;
+```
+
+**Priority Order:**
+1. Explicit parameter passed to method
+2. Environment variable extracted from SOM flow step
+3. Direct `process.env.ENV_VAR_NAME` access
+4. Fallback default value (only for non-sensitive data)
+
+Ensure you are writing "AI written test & do not edit on every test file you create, to ensure it has the comment that tests are only AI written" you can highlight it as a comment. 
+
+Do not include elements or flows from other screens unless explicitly referenced in the SOM.
+
+Convert SOM locators to Appium-compatible XPath:
+`'//*[@resource-id="..." or @name="..." or @text="..."]'`
+
+### 2. Page Object Class (e2e/pages/[ScreenName].ts)
+
+Name the class `[ScreenName]Page`.
+
+**MUST include FlowExecutor for recovery mechanism.**
+
+**MUST import logger for all logging.**
+
+Import FlowExecutor and related types:
+```typescript
+import {
+  FlowExecutor,
+  FlowDefinition,
+  ElementCheck,
+  waitForElementDisplayed,
+  waitForElementReady,
+  waitForElementStability,
+  logger,
+} from '../utils';
+```
+
+Initialize FlowExecutor in constructor:
+```typescript
+private flowExecutor: FlowExecutor;
+
+constructor() {
+  this.model = new [ScreenName]Screen();
+  this.flowExecutor = new FlowExecutor({
+    maxRecoveryAttempts: 3,
+    recoveryDelay: 1,
+  });
+}
+```
+
+Include individual methods for each flow step in availableFlows (for granular testing and reuse).
+
+Each method must:
+- Log each action with ✅ message using `logger.log()`
+- Include verification for headings, inputs, buttons, etc.
+- Use locators from the SOM only
+- Use `$$()` for finding multiple elements (e.g., country list items)
+- Wait for elements to be ready before interacting
+
+**MUST implement main flow method with recovery mechanism:**
+
+The main flow method (e.g., `loginWithPhoneNumber()`, `completeCheckout()`, `verifyOtp()`) MUST:
+- Use FlowExecutor to execute the flow
+- **Support multiple flows** - Accept optional `flowName` parameter to select specific flow
+- **Default to first flow** - If no flow name provided, use first available flow from SOM
+- **Check environment variable** - Check for `E2E_FLOW_[SCREENNAME]` env var for flow selection
+- Define FlowDefinition with state checks for each step
+- **Extract flow steps and metadata** - Handle both old format (array) and new format (object with metadata)
+- **Use flow metadata for env vars** - Extract env vars from flow metadata if available
+- **Use flow metadata for navigation** - Use expectedNavigation from metadata if available
+- Return `Promise<{success: boolean; completedSteps: number; failedSteps: number}>`
+
+Example structure for single flow (old format):
+```typescript
+async mainFlowMethod(param?: string): Promise<{
+  success: boolean;
+  completedSteps: number;
+  failedSteps: number;
+}> {
+  const flowDefinition: FlowDefinition = {
+    flowName: 'flow name from SOM',
+    stepNames: this.model.availableFlows['flow name'], // Array format
+    expectedScreen: 'ScreenName', // REQUIRED: Expected screen for entire flow (e.g., 'Landing', 'VerifyOtp')
+```
+
+Example structure for multiple flows (new format with metadata):
+```typescript
+async mainFlowMethod(flowName?: string, param?: string): Promise<{
+  success: boolean;
+  completedSteps: number;
+  failedSteps: number;
+}> {
+  // Determine which flow to use
+  let selectedFlowName = flowName;
+  let flowSteps: string[] = [];
+  let flowMetadata: {
+    description?: string;
+    userType?: string;
+    envVars?: {phoneNumber?: string; otp?: string};
+    expectedNavigation?: string[];
+  } | undefined;
+
+  // Priority 1: Explicit flow name parameter
+  // Priority 2: Environment variable (E2E_FLOW_[SCREENNAME])
+  // Priority 3: Default to first available flow
+  if (selectedFlowName && selectedFlowName in this.model.availableFlows) {
+    const flowData = this.model.availableFlows[selectedFlowName];
+    if (Array.isArray(flowData)) {
+      flowSteps = flowData;
+    } else {
+      flowSteps = flowData.steps;
+      flowMetadata = flowData.metadata;
+    }
+  } else {
+    // Check environment variable
+    const envFlowName = process.env[`E2E_FLOW_${this.constructor.name.replace('Page', '').toUpperCase()}`];
+    if (envFlowName && envFlowName in this.model.availableFlows) {
+      selectedFlowName = envFlowName;
+      const flowData = this.model.availableFlows[envFlowName];
+      if (Array.isArray(flowData)) {
+        flowSteps = flowData;
+      } else {
+        flowSteps = flowData.steps;
+        flowMetadata = flowData.metadata;
+      }
+    } else {
+      // Use first available flow as default
+      const firstFlowName = Object.keys(this.model.availableFlows)[0];
+      if (firstFlowName) {
+        selectedFlowName = firstFlowName;
+        const flowData = this.model.availableFlows[firstFlowName];
+        if (Array.isArray(flowData)) {
+          flowSteps = flowData;
+        } else {
+          flowSteps = flowData.steps;
+          flowMetadata = flowData.metadata;
+        }
+      } else {
+        throw new Error('No flows available in model');
+      }
+    }
+  }
+
+  // Extract env vars from flow metadata or flow steps
+  let envVarValue: string | null = null;
+  if (flowMetadata?.envVars?.otp) {
+    envVarValue = process.env[flowMetadata.envVars.otp] || null;
+  } else {
+    // Extract from flow step if not in metadata
+    const stepWithEnvVar = flowSteps.find(step => step.includes('{') && step.includes('}'));
+    if (stepWithEnvVar) {
+      const envVarMatch = stepWithEnvVar.match(/\{([A-Z_]+)\}/);
+      if (envVarMatch) {
+        envVarValue = process.env[envVarMatch[1]] || null;
+      }
+    }
+  }
+
+  // Determine expected navigation from flow metadata
+  const expectedNavigation = flowMetadata?.expectedNavigation || this.model.navigableScreens;
+
+  const flowDefinition: FlowDefinition = {
+    flowName: selectedFlowName,
+    stepNames: flowSteps,
+    expectedScreen: 'ScreenName', // REQUIRED: Expected screen for entire flow
+    steps: [
+      {
+        name: 'step name from SOM',
+        execute: async () => {
+          await this.stepMethod();
+        },
+        expectedScreen: 'NextScreenName', // OPTIONAL: Expected screen after this step (for navigation steps)
+        stateChecks: [
+          this.createElementCheck(this.model.locator, {
+            shouldExist: true,
+            shouldBeVisible: true,
+            shouldHaveValue: 'expected value', // For input fields
+            shouldContainText: 'expected text', // For text elements
+            shouldBeEnabled: true, // For buttons that should be enabled
+            shouldNotBeVisible: true, // For modals that should be closed
+          }),
+        ],
+      },
+      // ... more steps with state checks
+    ],
+  };
+
+  return await this.flowExecutor.executeFlow(flowDefinition);
+}
+```
+
+**State Checks Requirements:**
+
+For each step, define state checks that uniquely identify step completion:
+
+- **Input fields**: 
+  - Use `shouldHaveValue` to check if expected value is already entered (e.g., if "Pakistan" is already typed, step is done)
+  - **IMPORTANT**: If input value is not accessible (getValue() returns null), use `shouldBeEnabled` on the submit/continue button instead
+  - For phone numbers, compare digits only (formatting may differ)
+
+- **Visible elements**: 
+  - Use `shouldBeVisible: true` to verify UI state changes
+  - **IMPORTANT**: For dropdowns that change text (e.g., country selector), only check `resourceId`, not `name`/`text` (they change based on selection)
+
+- **Modals/Dialogs**: 
+  - Use `shouldNotBeVisible: true` to verify modals are closed after selection
+  - Always wait for modal to close before verification (add explicit wait in step execution)
+
+- **Element existence**: 
+  - Use `shouldExist: true` to verify elements appear/disappear
+
+- **Text content**: 
+  - Use `shouldContainText` to verify text changes
+
+- **Button states**: 
+  - Use `shouldBeEnabled: true` to verify buttons are clickable (indicates form is valid)
+
+- **Navigation steps**: 
+  - For steps that navigate to a new screen, use empty `stateChecks: []` (navigation itself is the verification)
+  - Do NOT check for elements that won't exist after navigation
+
+**Helper method for creating element checks:**
+```typescript
+private createElementCheck(
+  locator: {resourceId?: string; name?: string; text?: string},
+  options: {
+    shouldExist?: boolean;
+    shouldBeVisible?: boolean;
+    shouldNotBeVisible?: boolean;
+    shouldContainText?: string;
+    shouldHaveValue?: string;
+    shouldBeEnabled?: boolean;
+  } = {},
+): ElementCheck {
+  return {
+    locator: this.buildXPath(locator),
+    shouldExist: options.shouldExist !== undefined ? options.shouldExist : true,
+    shouldBeVisible: options.shouldBeVisible,
+    shouldNotBeVisible: options.shouldNotBeVisible,
+    shouldContainText: options.shouldContainText,
+    shouldHaveValue: options.shouldHaveValue,
+    shouldBeEnabled: options.shouldBeEnabled,
+  };
+}
+```
+
+**Additional helper methods:**
+```typescript
+getRecoveryState(): string {
+  return this.flowExecutor.getState();
+}
+
+resetRecoveryState(): void {
+  this.flowExecutor.reset();
+}
+
+/**
+ * Get current screen (cached, doesn't re-detect)
+ */
+async getCurrentScreen(): Promise<string | null> {
+  return await this.flowExecutor.getCurrentScreen();
+}
+
+/**
+ * Get screen analytics
+ */
+getScreenAnalytics() {
+  return this.flowExecutor.getScreenAnalytics();
+}
+
+/**
+ * Get unexpected screens summary
+ */
+getUnexpectedScreensSummary() {
+  return this.flowExecutor.getUnexpectedScreensSummary();
+}
+```
+
+**Critical Patterns for Step Execution:**
+
+1. **For country/item selection with modals:**
+   - After clicking item, explicitly wait for modal to close
+   - Check if modal is already closed before attempting selection (handles retries)
+   - Use `$$()` with `contains()` for finding list items: `'//*[contains(@resource-id, "country-selector-")]'`
+
+2. **For input fields where value is not accessible:**
+   - Don't rely on `shouldHaveValue` if `getValue()` returns null
+   - Instead, check if submit/continue button is enabled (indicates input is valid)
+   - Example: Phone input → Check continue button is enabled
+
+3. **For dropdowns with dynamic text:**
+   - Only use `resourceId` in state checks, not `name`/`text` (they change based on selection)
+   - Example: Country dropdown text changes from "🇦🇪 +971" to "🇵🇰 +92" after selection
+
+4. **For navigation steps:**
+   - Use empty `stateChecks: []` - navigation itself is the verification
+   - Do NOT check for elements that won't exist after navigation
+
+5. **For conditional steps (steps that may not execute based on navigation/state):**
+   - **CRITICAL**: Validate flow order logic - steps that depend on navigation outcomes must check current screen
+   - If a step can cause navigation (e.g., "OTP is automatically submitted"), subsequent steps must check if navigation occurred
+   - Example: If OTP submission navigates to Home screen, don't try to resend OTP (user is no longer on VerifyOtp screen)
+   - Use `getCurrentScreen()` in step execution to check if step should be skipped
+   - Log when steps are skipped due to navigation
+   - Example pattern:
+     ```typescript
+     {
+       name: 'user can resend the OTP code by tapping the resend code button.',
+       execute: async () => {
+         // CRITICAL: Only resend if we're still on VerifyOtp screen
+         // If OTP was successful, we would have navigated to Home/RegisterUser
+         const currentScreen = await this.getCurrentScreen();
+         if (currentScreen !== 'VerifyOtp') {
+           logger.log(`⚠️ Skipping resend step - already navigated to ${currentScreen} screen`);
+           return;
+         }
+         await this.resendOtpCode();
+       },
+       stateChecks: [
+         // State checks will fail if navigated away, causing step to be skipped
+         this.createElementCheck(this.model.getResendCodeButton, {
+           shouldExist: true,
+         }),
+       ],
+     }
+     ```
+
+**Flow Order Validation (CRITICAL):**
+
+**AI MUST validate flow order logic before generating tests:**
+
+**IMPORTANT: Flow steps from SOM may need to be reordered for logical execution:**
+- SOM flows define steps in a specific order, but sometimes the logical execution order differs
+- **AI can reorder steps** if it makes logical sense (e.g., resend OTP should happen BEFORE entering OTP, not after)
+- **Always document** when steps are reordered with a comment explaining why
+- **Keep step names exactly as defined in SOM** - only change the execution order in the flow definition
+
+1. **Analyze each step's potential outcomes:**
+   - Does this step cause navigation? (e.g., "OTP is automatically submitted" → may navigate to Home)
+   - Does this step depend on being on a specific screen? (e.g., "resend OTP" → requires VerifyOtp screen)
+   - Can subsequent steps execute if navigation occurred? (e.g., can't resend OTP if already on Home screen)
+   - **Does the step order make logical sense?** (e.g., resend OTP should happen BEFORE entering OTP, not after)
+
+2. **Identify conditional steps:**
+   - Steps that should only execute if still on the current screen
+   - Steps that should be skipped if navigation occurred
+   - Steps that depend on previous step outcomes
+
+3. **Implement conditional execution:**
+   - Check current screen before executing steps that depend on screen state
+   - Skip steps gracefully if conditions aren't met (log why step was skipped)
+   - Use `getCurrentScreen()` to verify screen state before executing screen-specific actions
+
+4. **Common patterns requiring conditional logic:**
+   - **Auto-submission flows**: After auto-submission, check if navigation occurred before attempting screen-specific actions
+   - **Error recovery flows**: If error occurs and user is redirected, skip error-specific steps
+   - **Multi-screen flows**: Steps that navigate between screens must account for navigation outcomes
+
+5. **Example problematic flow (WRONG):**
+   ```typescript
+   // WRONG: This will fail if OTP was successful and user navigated to Home
+   steps: [
+     { name: 'enter OTP', execute: () => enterOtp() },
+     { name: 'OTP auto-submitted', execute: () => verifySubmission() }, // May navigate to Home
+     { name: 'resend OTP', execute: () => resendOtp() }, // ❌ Will fail if on Home screen
+   ]
+   ```
+
+6. **Example fixed flow (CORRECT - Reordered):**
+   ```typescript
+   // CORRECT: Reordered steps to make logical sense
+   // Resend happens BEFORE entering OTP (logical order)
+   // NOTE: Steps are reordered from SOM but step names remain unchanged
+   steps: [
+     { name: 'screen opens', execute: () => verifyScreen() },
+     { 
+       name: 'resend OTP', // Reordered: happens BEFORE entering OTP
+       execute: () => resendOtp(),
+     },
+     { name: 'enter OTP', execute: () => enterOtp() },
+     { 
+       name: 'OTP auto-submitted', 
+       execute: () => verifySubmission(),
+       expectedScreen: 'VerifyOtp', // May navigate to Home/RegisterUser
+     },
+   ]
+   ```
+
+7. **Example fixed flow (CORRECT - Conditional):**
+   ```typescript
+   // CORRECT: Checks screen state before executing conditional step
+   // Use this pattern if you can't reorder steps (e.g., SOM order must be preserved)
+   steps: [
+     { name: 'enter OTP', execute: () => enterOtp() },
+     { 
+       name: 'OTP auto-submitted', 
+       execute: () => verifySubmission(),
+       expectedScreen: 'VerifyOtp', // May navigate to Home/RegisterUser
+     },
+     { 
+       name: 'resend OTP', 
+       execute: async () => {
+         const currentScreen = await this.getCurrentScreen();
+         if (currentScreen !== 'VerifyOtp') {
+           logger.log(`⚠️ Skipping resend - navigated to ${currentScreen}`);
+           return; // Skip if navigated away
+         }
+         await resendOtp();
+       },
+     },
+   ]
+   ```
+
+**Learning from VerifyOtp flow:**
+- After "OTP is automatically submitted", user may navigate to Home/RegisterUser if OTP is valid
+- "Resend OTP" step can only execute if user is still on VerifyOtp screen (OTP failed or invalid)
+- Always check `getCurrentScreen()` before executing steps that require specific screen state
+- Log when steps are skipped due to navigation to help with debugging
+
+### 3. Spec File (e2e/tests/[ScreenName].spec.ts)
+
+Import the [ScreenName]Page, logger, and screen tracking utilities.
+
+**MUST initialize screen registry in beforeAll.**
+
+**MUST use the recovery-enabled flow method in main test.**
+
+**MUST use logger for all logging (not console.log).**
+
+**MUST access screen analytics after flow execution.**
+
+Example:
+```typescript
+import {[ScreenName]Page} from '../pages/[ScreenName]Page';
+import {logger, waitForStableScreenDetection} from '../utils';
+
+describe('[Screen Name] Tests', () => {
+  let pageObject: [ScreenName]Page;
+
+  // NOTE: Screen registry is initialized globally in wdio.conf.ts
+  // No need to call initializeScreenRegistry() here
+  // All screens are already registered for AI-driven dynamic flow selection
+
+  beforeEach(async () => {
+    pageObject = new [ScreenName]Page();
+    logger.log('✅ Test setup completed');
+  });
+
+  it('should complete flow with recovery and screen tracking', async () => {
+    // CRITICAL: Wait for stable screen detection first (especially important for first screen/Landing)
+    logger.log('📱 Waiting for stable screen detection...');
+    const initialScreen = await waitForStableScreenDetection(
+      () => pageObject.getCurrentScreen(),
+      {
+        maxAttempts: 6,
+        delayBetweenAttempts: 1.5,
+        requiredStableCount: 2, // Need same result 2 times to be considered stable
+      },
+    );
+    logger.log(`📱 Initial screen detected: ${initialScreen || 'Unknown'}`);
+
+    // Handle navigation if needed (see Section 14 for details)
+    // ... navigation logic ...
+
+    const result = await pageObject.mainFlowMethod(param);
+    
+    // Assert recovery results
+    expect(result.success).toBe(true);
+    expect(result.failedSteps).toBe(0);
+    
+    // Log state for debugging
+    logger.log(`📊 Current state: ${pageObject.getRecoveryState()}`);
+    
+    // REQUIRED: Access screen analytics
+    const analytics = pageObject.getScreenAnalytics();
+    const unexpectedScreens = pageObject.getUnexpectedScreensSummary();
+    
+    logger.log(`📱 Current screen: ${analytics.currentScreen}`);
+    logger.log(`📊 Total transitions: ${analytics.transitions.length}`);
+    logger.log(`⚠️ Unexpected screens: ${unexpectedScreens.count}`);
+    
+    // Verify we're on expected screen
+    const currentScreen = await pageObject.getCurrentScreen();
+    expect(currentScreen).toBe('ExpectedScreenName'); // Replace with actual expected screen
+    
+    // Log unexpected screens if any
+    if (unexpectedScreens.count > 0) {
+      logger.warn(`⚠️ Found ${unexpectedScreens.count} unexpected screen transitions:`);
+      unexpectedScreens.screens.forEach(screen => {
+        logger.warn(`  - ${screen.from} → ${screen.screen}: ${screen.reason}`);
+      });
+    }
+  });
+});
+```
+
+Follow flows step by step from availableFlows.
+
+Use randomly generated data or environment variables where needed.
+
+Include setup (beforeEach) and teardown logic if required.
+
+Ensure the spec is readable, maintainable, and consistent with the page class.
+
+### 4. Recovery Mechanism (REQUIRED)
+
+**ALL tests MUST use the recovery mechanism for:**
+- Automatic state detection (knows which step is completed)
+- Interruption handling (ATT popup, keyboard, notifications)
+- Failure recovery (continues from next step if a step fails)
+- Intelligent step detection (e.g., if "Pakistan" is already typed, skips typing step)
+
+**Recovery mechanism automatically:**
+- Handles ATT popup before each step
+- Hides keyboard if shown
+- Detects current screen state
+- Skips already-completed steps (NEVER re-executes completed steps)
+- Recovers from failures and continues
+
+**Key Principles:**
+1. **Steps execute sequentially** - one by one, never out of order
+2. **Once marked complete, NEVER re-check or re-execute** - this is critical
+3. **Only interruptions are checked between steps** - not previous step conditions
+4. **Each step verifies ONLY its own conditions** - never previous steps
+5. **If verification fails, retry the SAME step** - don't go back to previous steps
+
+**Flow Execution Rules:**
+- Steps execute: Execute → Verify → Mark complete → Next step
+- Only interruptions (ATT popup, keyboard) are checked between steps
+- Each step verifies ONLY its own state checks
+- Once a step is marked complete, it is NEVER re-checked or re-executed
+- If a step fails verification, retry the SAME step (up to maxRecoveryAttempts)
+
+**Reference:** See `e2e/RECOVERY_MECHANISM_GUIDE.md` for detailed documentation.
+
+### 4.1. Stuck State Detection (REQUIRED)
+
+**ALL tests MUST detect stuck states to prevent infinite retries:**
+
+The recovery mechanism includes intelligent stuck state detection that automatically:
+- Detects when tests are stuck in infinite retry loops
+- Identifies common stuck patterns (e.g., button remains disabled after valid input)
+- Captures screenshots when stuck states are detected
+- Exits gracefully with clear error messages instead of retrying infinitely
+
+**Stuck State Patterns Detected:**
+
+1. **Button Disabled After Valid Input** - Detects when a button remains disabled after entering valid input (indicates validation bug)
+2. **Repeated Same Error** - Detects when the same error occurs repeatedly without progress
+3. **Element Not Found Repeated** - Detects when element not found errors are repeated multiple times
+4. **Verification Failed Repeated** - Detects when state verification keeps failing with same checks
+
+**How It Works:**
+
+- Stuck state detection runs automatically with intelligent tolerance:
+  - **Minimum retries**: 3 retries before checking (gives elements time to appear)
+  - **Minimum time**: 10 seconds elapsed before checking (accounts for slow UI)
+  - **Button state checks**: Checks button state 3 times with 2-second delays (ensures truly stuck)
+- If a stuck state is detected, the test:
+  1. Logs a clear error message with the detected pattern
+  2. Captures a screenshot with pattern name in filename
+  3. Marks the step as failed with stuck state reason
+  4. Exits gracefully (does not continue retrying)
+
+**Tolerance Settings:**
+
+The stuck state detector is designed to be tolerant of slow UI responses:
+- **Button disabled detection**: Waits 2 seconds, then checks 3 times with delays before declaring stuck
+- **Repeated errors**: Requires 4 identical errors (not just 3) before detecting stuck state
+- **Element not found**: Requires 3+ element not found errors before detecting stuck state
+- **Verification failed**: Requires both minimum retries (3) AND minimum time (10s) before detecting stuck state
+
+This ensures tests don't prematurely exit when elements are just slow to appear.
+
+**Screenshot Capture:**
+
+Screenshots are automatically captured when:
+- Stuck state is detected (saved as `stuck-state-step{N}-{stepName}-{pattern}-{timestamp}.png`)
+- Step fails after all retries (saved as `failed-step{N}-{stepName}-{timestamp}.png`)
+
+Screenshots are saved to `e2e/screenshots/` directory for review.
+
+**Best Practices:**
+
+1. **Define proper state checks** - State checks help detect stuck states early
+2. **Use button enabled checks** - For input fields, check if submit button is enabled (indicates validation passed)
+3. **Avoid infinite retries** - Trust stuck state detection to exit gracefully
+4. **Review screenshots** - Check screenshots to understand why tests got stuck
+
+**Example Stuck State Detection:**
+
+```typescript
+// If button remains disabled after entering phone number:
+// 1. Test enters phone number
+// 2. State check expects button to be enabled
+// 3. Button is still disabled (bug in app)
+// 4. After 3 retries AND 10+ seconds, stuck state detector checks
+// 5. Detector waits 2s, then checks button state 3 times with delays
+// 6. Button still disabled after all checks → stuck state detected
+// 7. Screenshot captured: stuck-state-step5-enter-phone-number-button-disabled-after-valid-input-2026-02-01.png
+// 8. Test exits with clear error message
+```
+
+**Reference:** See `e2e/utils/stuckStateDetector.ts` for implementation details.
+
+### 5. Screen Tracking (REQUIRED)
+
+**ALL tests MUST use screen tracking for:**
+- Automatic screen detection (knows which screen is currently open)
+- Screen transition tracking (tracks all screen changes)
+- Unexpected screen detection (identifies when wrong screen opens)
+- Analytics collection (time spent, transitions, unexpected screens)
+- Auto-healing (navigates back to expected screen if wrong screen opens)
+
+**Screen tracking automatically:**
+- Detects current screen before and after each step
+- Tracks all screen transitions with timestamps
+- Identifies unexpected screen transitions
+- Collects analytics data (time spent, transition counts)
+- Logs structured JSON data for processing
+
+**Key Requirements:**
+
+1. **Global Screen Registration** - Screens are registered globally in `wdio.conf.ts` before hook.
+   - **DO NOT call `initializeScreenRegistry()` in spec files** - it's already done globally
+   - All screens are registered upfront for AI-driven dynamic flow selection
+   - When creating a new page object/test, AI MUST add the screen to `e2e/utils/allScreensRegistry.ts`
+
+2. **Auto-Register New Screens** - When AI creates a new page object/test, it MUST:
+   - Add the screen definition to `e2e/utils/allScreensRegistry.ts`
+   - Use optimal selectors from the SOM model (most unique identifying element)
+   - Include navigation actions if the screen can be navigated back from
+   - Use the pattern: `{screenName}:screen:{elementName}` or similar unique resource-id patterns
+   
+   Example of adding a new screen to allScreensRegistry.ts:
+   ```typescript
+   // [ScreenName] Screen - HAS TESTS
+   // @screen code at: src/features/[feature]/screens/[ScreenName]Screen.tsx
+   // @model: e2e/models/[ScreenName].model.ts
+   ScreenRegistry.registerScreen({
+     screenName: '[ScreenName]',
+     identifyingElements: [
+       {
+         // Use the MOST UNIQUE element from SOM model (e.g., screen title, unique button)
+         // Prefer resource-id patterns like: {screenName}:screen:title or {screenName}:feature:element
+         locator: `//*[@resource-id="${model.getUniqueElement.resourceId}" or @name="${model.getUniqueElement.name}"]`,
+         shouldExist: true,
+         shouldBeVisible: true,
+       },
+     ],
+     fallbackElements: [
+       // Add 1-2 fallback elements from SOM model for reliability
+       {
+         locator: `//*[@resource-id="${model.getAnotherElement.resourceId}"]`,
+         shouldExist: true,
+       },
+     ],
+     navigationActions: {
+       goBack: async () => {
+         try {
+           const backButton = await $('//*[@content-desc="Back" or @name="Back"]');
+           if (await backButton.isDisplayed().catch(() => false)) {
+             await backButton.click();
+           }
+         } catch (error) {
+           logger.warn(`⚠️ Could not navigate back from [ScreenName] screen`);
+         }
+       },
+     },
+   });
+   ```
+
+3. **Set Expected Screen in Flow Definition** - MUST include `expectedScreen` in FlowDefinition:
+```typescript
+const flowDefinition: FlowDefinition = {
+  flowName: 'my flow',
+  expectedScreen: 'Landing', // REQUIRED: Expected screen for flow (starting screen)
+  steps: [
+    {
+      name: 'navigate to next screen',
+      expectedScreen: 'VerifyOtp', // OPTIONAL: Expected screen after this step (where user navigates TO)
+      // ...
+    },
+  ],
+};
+```
+
+**CRITICAL: expectedScreen Validation Rules:**
+
+1. **expectedScreen in FlowDefinition** - Should be the starting screen (where the flow begins)
+   - Example: If flow starts on Landing screen, `expectedScreen: 'Landing'`
+
+2. **expectedScreen in Step Definition** - Should be where the user navigates TO after the step completes
+   - **MUST match navigableScreens from SOM** - Check the SOM's `navigableScreens` array to see valid destinations
+   - **Can be a string OR array of strings** - Use array when step can navigate to multiple possible screens
+   - Example: If step submits OTP and SOM says `navigableScreens: ['Home', 'RegisterUser']`, then `expectedScreen: ['Home', 'RegisterUser']`
+   - **DO NOT set expectedScreen to current screen** - This causes FlowExecutor to wait for navigation that won't happen
+
+3. **Multiple Possible Destinations:**
+   - **PREFERRED**: Use array format `expectedScreen: ['Screen1', 'Screen2']` when step can navigate to multiple screens
+   - This allows FlowExecutor to wait for any of the expected screens
+   - Example: `expectedScreen: ['Home', 'RegisterUser']` - waits for either Home OR RegisterUser
+   - **Alternative**: Don't set `expectedScreen` - let screen tracker detect naturally (less precise)
+
+4. **Example (WRONG):**
+   ```typescript
+   // WRONG: expectedScreen is set to current screen
+   {
+     name: 'OTP is automatically submitted',
+     expectedScreen: 'VerifyOtp', // ❌ User is already on VerifyOtp, won't navigate here
+   }
+   ```
+
+5. **Example (CORRECT - Single Destination):**
+   ```typescript
+   // CORRECT: expectedScreen matches navigableScreens from SOM
+   // SOM says: navigableScreens: ['VerifyOtp']
+   {
+     name: 'tap continue button',
+     expectedScreen: 'VerifyOtp', // ✅ Single destination, use string
+   }
+   ```
+
+6. **Example (CORRECT - Multiple Destinations):**
+   ```typescript
+   // CORRECT: expectedScreen uses array for multiple possible destinations
+   // SOM says: navigableScreens: ['Home', 'RegisterUser']
+   {
+     name: 'OTP is automatically submitted',
+     expectedScreen: ['Home', 'RegisterUser'], // ✅ Array format for multiple destinations
+   }
+   ```
+
+6. **Always Check SOM navigableScreens:**
+   - Before setting `expectedScreen` in a step, check the SOM's `navigableScreens` array
+   - `expectedScreen` must be one of the screens listed in `navigableScreens`
+   - If not in `navigableScreens`, the navigation won't happen and FlowExecutor will wait indefinitely
+
+3. **Access Screen Analytics** - MUST access analytics after flow execution:
+```typescript
+const analytics = pageObject.getScreenAnalytics();
+const unexpectedScreens = pageObject.getUnexpectedScreensSummary();
+const currentScreen = await pageObject.getCurrentScreen();
+```
+
+4. **Optimal Selector Selection** - When registering screens, AI MUST:
+   - **Use the most unique element from SOM model** - typically screen titles, unique buttons, or feature-specific elements
+   - **Prefer resource-id patterns** - Look for patterns like `{screenName}:screen:title`, `{screenName}:feature:element`
+   - **Use screen-specific testIDs** - Elements with testIDs that include screen name are ideal
+   - **Avoid generic selectors** - Don't use generic elements like "button" or "input" as primary identifiers
+   - **Include fallback elements** - Add 1-2 additional elements from SOM for reliability
+   
+   **Selector Priority:**
+   1. Screen-specific testID/resource-id (e.g., `phone-number-add:screen:title`)
+   2. Feature-specific elements (e.g., `phone-number-add:auth:continue-button`)
+   3. Unique text content (e.g., screen headings)
+   4. Fallback: Generic elements that are unique to the screen
+
+**Screen Detection Methods:**
+- Primary: Element checks using identifying elements from ScreenRegistry
+- Fallback: Page source analysis for screen-specific testIDs
+- Automatic: Integrated with FlowExecutor, no additional code needed
+
+**Analytics Data:**
+- Current screen name
+- All screen transitions with timestamps
+- Unexpected screen transitions with reasons
+- Time spent on each screen
+- Structured JSON data for processing
+
+**Reference:** See `e2e/SCREEN_TRACKING_GUIDE.md` for detailed documentation.
+
+### 6. Logging System
+
+**ALL logging MUST use the logger utility (not console.log).**
+
+The logger automatically:
+- Writes all logs to `e2e/logs/[runId]-logs.txt` with unique run ID
+- Logs to both console and file
+- Includes timestamps in file logs
+- Maintains same run ID throughout test execution
+
+Import logger:
+```typescript
+import {logger} from '../utils';
+
+// Use logger for all logging
+logger.log('✅ Step completed');
+logger.error('❌ Step failed');
+logger.warn('⚠️ Warning message');
+```
+
+### 7. Folder Structure & Organization
+
+```
+e2e/
+  pages/
+    [ScreenName].ts          # Generated page class with recovery mechanism and screen tracking
+  tests/
+    [ScreenName].spec.ts     # Spec using the page class with recovery and screen tracking
+  utils/                     # Shared utility functions including recovery mechanism and screen tracking
+    stateTracker.ts          # State tracking
+    screenStateDetector.ts   # State detection
+    interruptionHandler.ts  # Interruption handling
+    recoveryManager.ts      # Recovery orchestration
+    flowExecutor.ts          # Flow execution with recovery and screen tracking
+    logger.ts                # Logging utility
+    screenRegistry.ts        # Screen registry for screen identification
+    screenTracker.ts         # Screen tracking and analytics
+    screenRegistryHelper.ts  # Screen registry helper functions
+  models/
+    [ScreenName].model.ts    # Screen Object Model (SOM)
+  logs/
+    [runId]-logs.txt         # Test run logs with unique run ID (includes screen analytics)
+```
+
+Each screen gets its own page class and spec file.
+
+Always refer back to SOM for locators and flow.
+
+### 8. Element Finding Best Practices
+
+**Use `$$()` for finding multiple elements:**
+- Faster and non-blocking (returns empty array if not found)
+- Use for lists, country items, etc.
+- Example: `const items = await $$('//*[contains(@resource-id, "country-selector-")]');`
+
+**Use `$()` only when you need to wait for element:**
+- Use with `waitForElementReady()` or `waitForElementDisplayed()`
+- Example: `const button = await waitForElementReady(buttonXPath);`
+
+**For dynamic locators (e.g., country items):**
+- Use `contains()` instead of `starts-with()` for more flexibility
+- Example: `'//*[contains(@resource-id, "country-selector-")]'`
+
+**For dropdowns with changing text:**
+- Only use `resourceId` in state checks, create custom locator if needed
+- Example: `{locator: '//*[@resource-id="phone-number-add-country-picker-container"]'}`
+
+### 9. State Check Patterns
+
+**Pattern 1: Input Field with Value Check**
+```typescript
+this.createElementCheck(this.model.getInputField, {
+  shouldExist: true,
+  shouldHaveValue: 'expected value', // Checks if value is already entered
+})
+```
+
+**Pattern 2: Input Field with Button Enabled Check (when value not accessible)**
+```typescript
+// Phone input - value not accessible, check button instead
+this.createElementCheck(this.model.getPhoneInput, {
+  shouldExist: true,
+  shouldBeVisible: true,
+}),
+this.createElementCheck(this.model.getContinueButton, {
+  shouldExist: true,
+  shouldBeVisible: true,
+  shouldBeEnabled: true, // Button enabled = input is valid
+}),
+```
+
+**Pattern 3: Modal Should Be Closed**
+```typescript
+{
+  locator: this.buildXPath(this.model.getModal),
+  shouldExist: true,
+  shouldNotBeVisible: true, // Modal should be closed
+}
+```
+
+**Pattern 4: Dropdown with Dynamic Text (use resourceId only)**
+```typescript
+{
+  locator: `//*[@resource-id="${this.model.getDropdown.resourceId}"]`,
+  shouldExist: true,
+  shouldBeVisible: true,
+}
+```
+
+**Pattern 5: Navigation Step (empty checks)**
+```typescript
+{
+  name: 'tap on continue button to proceed to next screen',
+  execute: async () => {
+    await this.tapContinueButton();
+  },
+  stateChecks: [], // Navigation step - no checks needed
+}
+```
+
+**Pattern 6: List Item Selection**
+```typescript
+// In step execution method:
+const items = await $$('//*[contains(@resource-id, "item-selector-")]');
+if (items.length > 0) {
+  await waitForElementReady(items[0]);
+  await items[0].click();
+  // Wait for modal to close
+  await waitForElementStability(1.5);
+  // Explicitly wait for modal to disappear
+}
+```
+
+### 10. Common Issues and Solutions
+
+**Issue 1: Input value returns null**
+- **Solution**: Use `shouldBeEnabled` on submit/continue button instead of `shouldHaveValue`
+- **Reason**: Some React Native inputs don't expose value via `getValue()`
+
+**Issue 2: Dropdown text changes after selection**
+- **Solution**: Only use `resourceId` in state checks, not `name`/`text`
+- **Reason**: Dropdown text is dynamic (e.g., country selector shows selected country)
+
+**Issue 3: Modal still visible after selection**
+- **Solution**: Add explicit wait for modal to close in step execution method
+- **Reason**: Modals may take time to animate/close
+
+**Issue 4: Test re-checks earlier steps**
+- **Solution**: Ensure steps are marked complete and never re-checked
+- **Reason**: Recovery mechanism should skip completed steps
+
+**Issue 5: Element not found errors**
+- **Solution**: Use `$$()` with `.catch(() => [])` for non-blocking checks
+- **Reason**: `$()` waits/timeouts when element doesn't exist
+
+**Issue 6: Navigation step fails verification**
+- **Solution**: Use empty `stateChecks: []` for navigation steps
+- **Reason**: Elements from previous screen won't exist after navigation
+
+### 11. Coding Style & Standards
+
+- Use TypeScript
+- Methods should have clear JSDoc comments
+- Always wait for elements before interacting
+- **ALWAYS use `logger.log()` for logging (not console.log)**
+- Always include assertions for visibility, text content, and expected behaviors
+- **MUST use recovery mechanism in all flow methods**
+- **MUST define state checks for each flow step**
+- Use `$$()` for finding multiple elements (faster, non-blocking)
+- Use `waitForElementReady()` or `waitForElementDisplayed()` before interacting
+- Add explicit waits for modals to close after selection
+- Check if actions are already completed before executing (handles retries)
+
+### 12. Important Instructions for the AI Agent
+
+**MANDATORY REQUIREMENTS:**
+
+1. **ALWAYS wait for stable screen detection first** - Use `waitForStableScreenDetection()` with retries (especially for first screen/Landing)
+
+2. **ALWAYS use FlowExecutor for main flow methods** - Never create flow methods without recovery mechanism.
+
+3. **ALWAYS use logger for all logging** - Never use `console.log`, always use `logger.log()`, `logger.error()`, `logger.warn()`.
+
+4. **ALWAYS define state checks for each step** - State checks are critical for recovery mechanism to work:
+   - For input fields: Use `shouldHaveValue` OR `shouldBeEnabled` on submit button (if value not accessible)
+   - For UI elements: Use `shouldBeVisible` to detect state changes
+   - For modals: Use `shouldNotBeVisible` to verify they're closed
+   - For text elements: Use `shouldContainText` to verify content
+   - For element existence: Use `shouldExist` to verify presence/absence
+   - For buttons: Use `shouldBeEnabled` to verify they're clickable
+   - For navigation: Use empty `stateChecks: []`
+
+5. **ALWAYS handle interruptions** - Recovery mechanism handles ATT popup, keyboard, etc. automatically.
+
+6. **ALWAYS return recovery results** - Main flow methods must return `{success: boolean; completedSteps: number; failedSteps: number}`.
+
+7. **ALWAYS use SOM locators** - Do not hardcode locators; always pick from SOM.
+
+8. **ALWAYS follow SOM flows** - Do not assume flows outside SOM.
+
+9. **ALWAYS include individual step methods** - Even though main flow uses FlowExecutor, keep individual methods for granular testing and reusability.
+
+10. **ALWAYS use `$$()` for finding multiple elements** - Faster and non-blocking.
+
+11. **ALWAYS wait for modals to close** - Add explicit waits in step execution methods for modals.
+
+12. **ALWAYS check if action already completed** - Before executing, check if step is already done (handles retries).
+
+13. **ALWAYS use resourceId only for dynamic dropdowns** - Don't use name/text in state checks for dropdowns that change.
+
+14. **ALWAYS use empty stateChecks for navigation steps** - Don't check for elements that won't exist after navigation.
+
+15. **ALWAYS register new screens in allScreensRegistry.ts** - When creating a new page object/test, AI MUST add the screen definition to `e2e/utils/allScreensRegistry.ts` using optimal selectors from the SOM model.
+
+16. **ALWAYS use optimal selectors from SOM** - When registering screens, use the most unique identifying element from the SOM model (screen titles, unique buttons, feature-specific elements).
+
+17. **ALWAYS set expectedScreen in flow definitions** - Include `expectedScreen` in FlowDefinition for screen tracking.
+
+18. **ALWAYS add expectedScreen to navigation steps** - For steps that navigate to a new screen, include `expectedScreen` property.
+
+19. **ALWAYS access screen analytics** - Get and log screen analytics after flow execution in spec files.
+
+20. **DO NOT call initializeScreenRegistry() in spec files** - Screens are registered globally in wdio.conf.ts before hook.
+
+21. **ALWAYS trust stuck state detection** - If stuck state is detected, test will exit gracefully with screenshot. Do not add additional retry logic that could cause infinite loops.
+
+22. **ALWAYS define proper state checks** - State checks help stuck state detector identify when tests are stuck (e.g., button should be enabled after valid input).
+
+**Code Generation Pattern:**
+
+When generating a page class:
+1. Import FlowExecutor, ElementCheck, logger, and helper methods
+2. Initialize FlowExecutor in constructor
+3. Create individual methods for each flow step
+4. Create main flow method using FlowExecutor with FlowDefinition
+5. **MUST include `expectedScreen` in FlowDefinition** (required for screen tracking)
+6. **MUST include `expectedScreen` in navigation steps** (optional but recommended)
+7. Define state checks for each step (be intelligent - check if values are already entered, use button enabled for inputs)
+8. Add helper methods (createElementCheck, getRecoveryState, resetRecoveryState, buildXPath, getCurrentScreen, getScreenAnalytics, getUnexpectedScreensSummary)
+9. Use `$$()` for finding multiple elements
+10. Add explicit waits for modals to close
+11. Check if actions already completed before executing
+
+When generating a spec file:
+1. Import page class, logger, and waitForStableScreenDetection
+2. **DO NOT call initializeScreenRegistry()** - screens are registered globally in wdio.conf.ts
+3. **MUST wait for stable screen detection first** - Use `waitForStableScreenDetection()` with retries (especially for first screen/Landing)
+4. Handle navigation if needed (see Section 14 for details)
+5. Use the recovery-enabled main flow method
+6. Assert recovery results
+7. Log recovery state for debugging using logger
+8. **MUST access screen analytics** (getScreenAnalytics, getUnexpectedScreensSummary, getCurrentScreen)
+9. **MUST verify expected screen** (assert current screen matches expected)
+10. **MUST log unexpected screens** if any found
+11. Include granular tests using individual methods if needed
+
+**CRITICAL: When creating a NEW page object/test, AI MUST:**
+1. **Add screen to allScreensRegistry.ts** - Register the screen in `e2e/utils/allScreensRegistry.ts`
+2. **Use optimal selectors from SOM** - Use the most unique identifying element from the SOM model
+3. **Follow the registration pattern** - Include identifyingElements, fallbackElements, and navigationActions
+4. **Add comments** - Include @screen code path and @model path in comments
+5. **Mark test status** - Add comment indicating if screen has tests or not (e.g., "HAS TESTS" or "NO TESTS YET")
+
+**State Check Intelligence:**
+
+The recovery mechanism is intelligent. For example:
+- If typing "Pakistan" in a field, check if "Pakistan" is already in the field
+- If the value exists, the step is already done → skip to next step
+- This prevents re-typing and handles cases where test got stuck mid-step
+
+**Example State Check Patterns:**
+
+```typescript
+// Pattern 1: Input field - check if value is already entered
+this.createElementCheck(this.model.getInputField, {
+  shouldExist: true,
+  shouldHaveValue: 'expected value', // If this exists, step is done
+})
+
+// Pattern 2: Input field - value not accessible, check button instead
+this.createElementCheck(this.model.getInputField, {
+  shouldExist: true,
+  shouldBeVisible: true,
+}),
+this.createElementCheck(this.model.getSubmitButton, {
+  shouldExist: true,
+  shouldBeEnabled: true, // Button enabled = input is valid
+}),
+
+// Pattern 3: Modal should be closed
+{
+  locator: this.buildXPath(this.model.getModal),
+  shouldExist: true,
+  shouldNotBeVisible: true, // Modal should be closed
+}
+
+// Pattern 4: Dropdown with dynamic text (use resourceId only)
+{
+  locator: `//*[@resource-id="${this.model.getDropdown.resourceId}"]`,
+  shouldExist: true,
+  shouldBeVisible: true,
+}
+
+// Pattern 5: Navigation step (empty checks)
+{
+  name: 'tap continue to navigate',
+  execute: async () => await this.tapContinue(),
+  stateChecks: [], // Navigation - no checks needed
+}
+
+// Pattern 6: UI element - check if visible after action
+this.createElementCheck(this.model.getListElement, {
+  shouldExist: true,
+  shouldBeVisible: true, // If visible, step is done
+})
+```
+
+**Reference Files:**
+- See `e2e/pages/LandingPage.ts` for complete example with recovery mechanism and screen tracking
+- See `e2e/RECOVERY_MECHANISM_GUIDE.md` for detailed recovery mechanism documentation
+- See `e2e/SCREEN_TRACKING_GUIDE.md` for detailed screen tracking documentation
+- See `e2e/utils/` for recovery mechanism and screen tracking utilities
+
+**Screen Tracking Integration:**
+- Screen tracking is automatically integrated with FlowExecutor
+- No additional code needed in page objects (just set `expectedScreen` in FlowDefinition)
+- Screen analytics are automatically collected and logged
+- Unexpected screens are automatically detected and logged
+
+**On the top of screen object model you will find path to actual screen code, iterate over it so you get complete understanding about the structure of the code and use your learning to write code, but ensure you don't go out of scope of that screen and SOM file availableFlows.**
+
+**If you find the tests are already there you can update the existing tests to align with the SOM file and add recovery mechanism and screen tracking.**
+
+### 12.1. Multi-Flow Support in Page Objects (REQUIRED)
+
+**CRITICAL: When a screen has multiple flows, AI MUST generate page objects that support all flows dynamically.**
+
+**Requirements:**
+
+1. **Main Flow Method Must Accept Flow Name:**
+   - Accept optional `flowName?: string` parameter
+   - If provided, use that specific flow
+   - If not provided, check environment variable `E2E_FLOW_[SCREENNAME]`
+   - If still not provided, default to first available flow
+
+2. **Handle Both Flow Formats:**
+   - Support old format: `availableFlows['flow name']` → array of strings
+   - Support new format: `availableFlows['flow name']` → object with `steps` and `metadata`
+
+3. **Extract Environment Variables:**
+   - **Priority 1**: From flow metadata `envVars` (if new format)
+   - **Priority 2**: From flow step text `{ENV_VAR_NAME}` pattern (if old format)
+   - **Priority 3**: Direct `process.env.ENV_VAR_NAME` access
+   - **Priority 4**: Fallback default value
+
+4. **Use Flow Metadata for Navigation:**
+   - Use `flowMetadata.expectedNavigation` if available (new format)
+   - Otherwise, use `this.model.navigableScreens` (fallback)
+
+5. **Log Flow Selection:**
+   - Always log which flow is being executed
+   - Log flow metadata (user type, env vars) if available
+
+**Example Implementation for Multiple Flows (Landing Screen):**
+
+```typescript
+async loginWithPhoneNumber(
+  flowNameOrPhone?: string,
+  phoneNumber?: string,
+): Promise<{success: boolean; completedSteps: number; failedSteps: number}> {
+  // Backward compatibility: If first param looks like phone number, treat it as phoneNumber
+  let selectedFlowName: string | undefined;
+  let providedPhoneNumber: string | undefined;
+
+  if (flowNameOrPhone) {
+    const looksLikePhone = /^[\d+\s-]+$/.test(flowNameOrPhone);
+    if (looksLikePhone) {
+      providedPhoneNumber = flowNameOrPhone;
+      selectedFlowName = undefined;
+    } else {
+      selectedFlowName = flowNameOrPhone;
+      providedPhoneNumber = phoneNumber;
+    }
+  }
+
+  // Determine which flow to use (Priority: param > env var > default)
+  let flowSteps: string[] = [];
+  let flowMetadata: {
+    description?: string;
+    userType?: string;
+    envVars?: {phoneNumber?: string};
+    expectedNavigation?: string[];
+  } | undefined;
+
+  if (selectedFlowName && selectedFlowName in this.model.availableFlows) {
+    const flowData = this.model.availableFlows[selectedFlowName];
+    if (Array.isArray(flowData)) {
+      flowSteps = flowData;
+    } else {
+      flowSteps = flowData.steps;
+      flowMetadata = flowData.metadata;
+    }
+  } else {
+    // Check environment variable or use default
+    const envFlowName = process.env[`E2E_FLOW_LANDING`];
+    if (envFlowName && envFlowName in this.model.availableFlows) {
+      selectedFlowName = envFlowName;
+      const flowData = this.model.availableFlows[envFlowName];
+      flowSteps = Array.isArray(flowData) ? flowData : flowData.steps;
+      flowMetadata = Array.isArray(flowData) ? undefined : flowData.metadata;
+    } else {
+      // Default to first available flow
+      const firstFlowName = Object.keys(this.model.availableFlows)[0];
+      selectedFlowName = firstFlowName;
+      const flowData = this.model.availableFlows[firstFlowName];
+      flowSteps = Array.isArray(flowData) ? flowData : flowData.steps;
+      flowMetadata = Array.isArray(flowData) ? undefined : flowData.metadata;
+    }
+  }
+
+  // Extract phone number from flow metadata
+  let envVarPhone: string | null = null;
+  if (flowMetadata?.envVars?.phoneNumber) {
+    envVarPhone = process.env[flowMetadata.envVars.phoneNumber] || null;
+  }
+
+  const phoneToUse = providedPhoneNumber || envVarPhone || process.env.EXISTING_USER_PHONE_NUMBER || '1234567890';
+
+  // ... rest of flow execution
+}
+```
+
+**Example Implementation for Single Flow (VerifyOtp Screen):**
+
+```typescript
+async verifyOtp(otpCode?: string): Promise<{
+  success: boolean;
+  completedSteps: number;
+  failedSteps: number;
+}> {
+  // Single flow - no flow selection needed
+  const flowSteps = this.model.availableFlows['verify otp'];
+  const selectedFlowName = 'verify otp';
+
+  // Extract OTP from flow step
+  let envVarOtp: string | null = null;
+  const otpStep = flowSteps.find(step => step.includes('{') && step.includes('}'));
+  if (otpStep) {
+    const envVarMatch = otpStep.match(/\{([A-Z_]+)\}/);
+    if (envVarMatch) {
+      envVarOtp = process.env[envVarMatch[1]] || null;
+    }
+  }
+
+  // Priority: explicit parameter > env var from step > DEV_USER_OTP > default
+  const otpToUse = otpCode || envVarOtp || process.env.DEV_USER_OTP || '1234';
+
+  // Navigation is determined by backend based on phone number, so accept both possible destinations
+  const expectedNavigation = this.model.navigableScreens; // ['RegisterUser', 'Home']
+
+  // ... rest of flow execution
+}
+```
+
+**When User Provides Context for New Flows:**
+
+If user writes `@e2e-generate @Screen` and provides context about new flows (e.g., "add flow for new user registration"), AI MUST:
+
+1. **Check if SOM already has multiple flows** - If yes, add new flow to existing structure
+2. **Use new format with metadata** - Always use new format (object with steps and metadata) when adding flows
+3. **Include all required metadata** - description, userType, envVars, expectedNavigation, keywords
+4. **Update page object** - Ensure page object supports the new flow
+5. **Update spec file** - Ensure spec file can test the new flow
+
+**Example User Request for Multiple Flows:**
+```
+@e2e-generate @Landing
+Add flow for "login with phone number for existing new user" that uses EXISTING_NEW_USER_PHONE_NUMBER, keywords: ["existing new user", "new user login"]
+```
+
+**AI Response:**
+1. Update `Landing.model.ts` to add new flow with metadata (phone number env var)
+2. Update `LandingPage.ts` to support the new flow (already supports multiple flows dynamically)
+3. Update `LandingPage.spec.ts` if needed (or it will work automatically with flow selection)
+
+**Example User Request for Single Flow:**
+```
+@e2e-generate @VerifyOtp
+Update OTP flow to use DEV_USER_OTP (single OTP for all user types)
+```
+
+**AI Response:**
+1. Update `VerifyOtp.model.ts` to use single flow with DEV_USER_OTP
+2. Update `VerifyOtpPage.ts` to simplify (remove flow selection, just use single flow)
+3. Update `VerifyOtp.spec.ts` to use simplified API
+
+**Note:** VerifyOtp screen uses single flow because OTP entry is the same for all user types. Navigation outcome (RegisterUser vs Home) is determined by backend based on phone number used in Landing screen, not by VerifyOtp flow.
+
+### 13. Navigation Path Validation (REQUIRED - FOR AI ONLY)
+
+**CRITICAL: Before writing tests for any screen, AI MUST validate navigation paths using the SOM metadata file.**
+
+**IMPORTANT: This validation is for AI analysis only - DO NOT use `findNavigationPath` or navigation path utilities in the actual test code.**
+
+**AI MUST do the following BEFORE writing any test:**
+
+1. **Read SOM Metadata File (PREFERRED):**
+   - **Read `e2e/models/som-metadata.ts`** for quick navigation analysis
+   - Use `SOM_METADATA` object to get `navigableScreens` for all screens
+   - Use `findNavigationPath()` helper function to find paths between screens
+   - Use `getScreensNavigatingTo()` helper function to find screens that navigate to target
+   - **This is faster and more efficient than reading all individual SOM files**
+
+   **Alternative (if metadata file is outdated or incomplete):**
+   - Read all `*.model.ts` files in `e2e/models/` directory
+   - Extract `navigableScreens` arrays from each SOM model
+   - Build a navigation graph from `navigableScreens` relationships
+   - **If metadata file is incomplete, update it immediately after reading SOM files**
+
+2. **Determine Current Screen:**
+   - Check which tests have already been written
+   - Determine what screen the previous test ended on
+   - If no previous test, assume app starts on `Landing` screen
+
+3. **Validate Navigation Path:**
+   - Use `navigableScreens` arrays to find if target screen can be reached
+   - Check if any existing screen's `navigableScreens` includes the target screen
+   - Trace navigation path from current screen to target screen
+
+4. **If No Path Found:**
+   - **DO NOT write the test**
+   - **Output clear error message to user:**
+     ```
+     ❌ Cannot reach [TargetScreen] screen from [CurrentScreen] screen.
+     No navigation path found in SOM models.
+     Please ensure there's a clear path defined in navigableScreens.
+     Available paths from current screen: [list of navigableScreens]
+     Screens that can reach [TargetScreen]: [list of screens]
+     ```
+   - **Suggest solutions:**
+     - Check if target screen is in `navigableScreens` of any screen
+     - Verify SOM models have correct navigation context
+     - Consider if screen needs to be reached via a different path
+
+5. **If Path Found:**
+   - Write test code that detects current screen
+   - If already on target screen, skip navigation
+   - If not on target, navigate using flows from SOM models
+   - Follow the navigation path step by step using flows from each screen's SOM
+
+**How AI Should Analyze Navigation Paths:**
+
+1. **Read SOM Metadata File (PRIMARY METHOD - PREFERRED):**
+   ```typescript
+   // AI reads: e2e/models/som-metadata.ts (ONLY THIS FILE - NOT ALL SOM FILES)
+   import {SOM_METADATA, findNavigationPath, getScreensNavigatingTo} from './models/som-metadata';
+   
+   // Get navigation info from metadata (no need to read individual SOM files)
+   const landingNav = SOM_METADATA.Landing.navigableScreens; // ['VerifyOtp', 'Terms', 'Home']
+   const verifyOtpNav = SOM_METADATA.VerifyOtp.navigableScreens; // ['RegisterUser', 'Home']
+   
+   // Use helper functions (much faster than reading all SOM files)
+   const path = findNavigationPath('Landing', 'VerifyOtp'); // ['Landing', 'VerifyOtp']
+   const sources = getScreensNavigatingTo('VerifyOtp'); // ['Landing']
+   ```
+
+   **⚠️ IMPORTANT: AI should NOT read all individual SOM files for navigation analysis.**
+   - Metadata file contains all navigation information
+   - Reading metadata file is faster and more efficient
+   - Only read specific SOM files when detailed locator information is needed
+
+   **Fallback (only if metadata file is outdated or incomplete):**
+   ```typescript
+   // Only if metadata file is missing/outdated - read specific SOM files
+   // AI reads: e2e/models/Landing.model.ts (only this one file)
+   navigableScreens: ['VerifyOtp', 'Terms', 'Home']
+   
+   // Then immediately update metadata file after reading
+   ```
+
+2. **Build Navigation Graph:**
+   ```
+   Landing → VerifyOtp → RegisterUser → Home
+   Landing → Terms
+   Landing → Home
+   VerifyOtp → Home
+   ```
+
+3. **Check Path:**
+   - Current screen: `Landing` (from previous test)
+   - Target screen: `VerifyOtp`
+   - Path exists: `Landing → VerifyOtp` ✓
+
+4. **Write Test Code:**
+   ```typescript
+   // Test code (NOT using findNavigationPath - AI already determined path)
+   const initialScreen = await pageObject.getCurrentScreen();
+   if (initialScreen === 'VerifyOtp') {
+     // Skip navigation
+   } else {
+     // Navigate from Landing using Landing flow
+     await landingPage.loginWithPhoneNumber(phoneNumber);
+   }
+   ```
+
+**Navigation Path Rules:**
+
+1. **Each test file is independent** - Tests run one by one, sessions are shared between screen tests
+2. **Tests must detect current screen** - Don't assume starting screen
+3. **AI must validate paths BEFORE writing** - Check if navigation is possible by reading SOM metadata file (NOT all SOM files)
+4. **Tests must follow paths** - Use `navigableScreens` from SOM metadata to navigate
+5. **If no path, don't write test** - Inform user clearly why test cannot be written
+6. **Use metadata file for path validation** - Read `som-metadata.ts` and use helper functions, don't read all individual SOM files
+
+**How Navigation Paths Work:**
+
+- Navigation paths are built from `navigableScreens` arrays in SOM metadata file
+- Each screen's metadata entry defines which screens it can navigate to
+- **AI reads metadata file (NOT all SOM files)** and uses helper functions to build navigation graph
+- Landing screen is the entry point (app starts here)
+- If no source screen (app just started), AI assumes Landing as start
+- **Use `findNavigationPath()` helper** from metadata file instead of manually building graph
+
+**Example Navigation Flow:**
+
+```
+Landing (navigableScreens: ['VerifyOtp', 'Terms', 'Home'])
+  ↓
+VerifyOtp (navigableScreens: ['RegisterUser', 'Home'])
+  ↓
+RegisterUser (navigableScreens: ['Home'])
+  ↓
+Home
+```
+
+**When AI Writes Tests:**
+
+1. **AI reads SOM files** to understand navigation paths
+2. **AI checks if path exists** from current screen to target screen
+3. **If no path, AI informs user** and doesn't write test
+4. **If path exists, AI writes test** that:
+   - Detects current screen
+   - Skips navigation if already on target
+   - Navigates using flows from SOM models if needed
+
+**Reference:**
+- See `e2e/utils/navigationPathFinder.ts` for AI reference (utility for AI to understand paths)
+- See `e2e/tests/VerifyOtp.spec.ts` for example test code (does NOT use findNavigationPath)
+
+### 14. Screen Detection and Navigation Handling (REQUIRED)
+
+**CRITICAL: ALL tests MUST first check the current screen before executing their tests.**
+
+**ALL tests MUST handle unexpected screens gracefully:**
+
+1. **Always Check Current Screen First:**
+   - Use `getCurrentScreen()` at the start of every test
+   - Log the detected screen for debugging
+   - Never assume which screen the test starts on
+
+2. **Handle Current Screen:**
+   - **If already on target screen:** Skip navigation, proceed with test
+   - **If on expected source screen:** Navigate to target using flows from SOM
+   - **If on unexpected screen:** Handle gracefully by either:
+     - Going back to a known screen (using `navigationActions.goBack()` from ScreenRegistry)
+     - Navigating forward to target screen (if path exists)
+     - Continuing from unexpected screen (if test can handle it)
+
+3. **Navigation Strategy:**
+   - Use `ScreenRegistry.getScreen(currentScreen)?.navigationActions?.goBack()` to go back
+   - Use flows from SOM models to navigate forward
+   - Always verify screen after navigation before proceeding
+
+4. **Error Handling:**
+   - If cannot navigate to target screen, throw clear error with current screen info
+   - Suggest solutions (e.g., "Please ensure tests run in correct order")
+
+**Example Implementation:**
+
+```typescript
+// At the start of every test:
+// CRITICAL: Wait for stable screen detection (especially important for first screen/Landing)
+import {waitForStableScreenDetection} from '../utils';
+
+logger.log('📱 Waiting for stable screen detection...');
+const initialScreen = await waitForStableScreenDetection(
+  () => pageObject.getCurrentScreen(),
+  {
+    maxAttempts: 6,
+    delayBetweenAttempts: 1.5,
+    requiredStableCount: 2, // Need same result 2 times to be considered stable
+  },
+);
+logger.log(`📱 Initial screen detected: ${initialScreen || 'Unknown'}`);
+
+// If already on target screen, skip navigation
+if (initialScreen === 'TargetScreen') {
+  logger.log('✅ Already on TargetScreen - skipping navigation');
+} else {
+  // Handle unexpected screens
+  if (initialScreen && initialScreen !== 'ExpectedSourceScreen') {
+    logger.log(`⚠️ Unexpected screen detected: ${initialScreen}`);
+    logger.log('   Attempting to navigate back to ExpectedSourceScreen...');
+    
+    // Try to go back using ScreenRegistry
+    const {ScreenRegistry} = await import('../utils');
+    const screenDef = ScreenRegistry.getScreen(initialScreen);
+    if (screenDef?.navigationActions?.goBack) {
+      await screenDef.navigationActions.goBack();
+      await waitForElementStability(1);
+      
+      // Verify navigation
+      const screenAfterBack = await pageObject.getCurrentScreen();
+      logger.log(`✅ After going back, now on: ${screenAfterBack || 'Unknown'}`);
+    }
+  }
+  
+  // Navigate from expected source screen to target
+  const currentScreen = await pageObject.getCurrentScreen();
+  if (currentScreen === 'ExpectedSourceScreen' || !currentScreen) {
+    // Execute flow to navigate to target screen
+    await sourcePage.navigateToTarget();
+  } else {
+    throw new Error(
+      `❌ Cannot navigate to TargetScreen. ` +
+      `Current screen: ${currentScreen}. ` +
+      `Expected to be on ExpectedSourceScreen.`
+    );
+  }
+}
+
+// Proceed with test execution
+await pageObject.executeTestFlow();
+```
+
+**Key Requirements:**
+
+1. **Every test MUST wait for stable screen detection first** - Use `waitForStableScreenDetection()` with retries
+2. **Especially important for first screen (Landing)** - App may take time to load, retry 5-6 times
+3. **Handle unexpected screens gracefully** - Go back or navigate forward
+4. **Verify screen after navigation** - Always check if navigation succeeded
+5. **Log all screen transitions** - Help with debugging test execution
+6. **Throw clear errors** - If cannot navigate, inform user with current screen info
+
+**Stable Screen Detection:**
+
+- Use `waitForStableScreenDetection()` function from `../utils`
+- Retries 5-6 times with 1.5 second delays between attempts
+- Requires same screen result 2 times consecutively to be considered stable
+- Returns most common result if no stable screen found after all attempts
+- Prevents false positives from transient screen states during app loading
+
+**Benefits:**
+
+- Tests can iterate through multiple test files even when unexpected screens appear
+- Tests are resilient to app state changes
+- Tests can recover from navigation issues
+- Tests provide clear feedback about screen state
+
+**Reference:**
+- See `e2e/utils/screenRegistry.ts` for `navigationActions.goBack()` implementation
+- See `e2e/utils/screenTracker.ts` for `autoHeal()` method (can be used for recovery)
+- See `e2e/tests/VerifyOtp.spec.ts` for complete example
+
+## Final Step: File Creation Complete
+
+**NOTE: AI should only write the test files (SOM, Page Object, Spec). Test execution should be done by the user or CI/CD pipeline, not by AI.**
+
+### Complete Checklist
+
+**6.1 Files Created:**
+- [ ] SOM model file created/updated with correct selectors
+- [ ] Page Object class created with all flow methods
+- [ ] Spec file created with test cases
+- [ ] Screen registered in `e2e/utils/allScreensRegistry.ts` (if new screen)
+
+**6.2 Documentation:**
+- All files follow existing patterns and conventions
+- Code is properly formatted and documented
+- Test files are ready for execution by user or CI/CD
+
+## AI Agent Instructions for @e2e-generate @Screen
+
+**When user writes `@e2e-generate @Screen`:**
+
+1. **Check if SOM exists:**
+   - If SOM doesn't exist, create it first (follow `@e2e-prepare-som` rules)
+   - If SOM exists, read it to understand selectors and flows
+
+2. **Write Page Object Class:**
+   - Create `e2e/pages/[ScreenName]Page.ts`
+   - Include FlowExecutor, recovery mechanism, screen tracking
+   - Implement all flow methods from SOM's `availableFlows`
+   - Add individual step methods for granular testing
+
+3. **Write Spec File:**
+   - Create `e2e/tests/[ScreenName].spec.ts`
+   - Use recovery-enabled flow methods
+   - Include screen tracking and analytics
+   - Handle navigation and screen detection
+
+4. **Register Screen (if new):**
+   - Add screen to `e2e/utils/allScreensRegistry.ts`
+   - Use optimal selectors from SOM model
+   - Include navigation actions if needed
+
+5. **File Creation Complete:**
+   - All files have been written following the patterns and conventions
+   - Test files are ready for execution by user or CI/CD pipeline
+   - AI does not execute tests - that is the user's responsibility
+
+**CRITICAL REMINDERS:**
+- **ONLY write test files** - AI should not execute tests
+- **Follow all patterns and conventions** - ensure code quality
+- **Register new screens** - add to allScreensRegistry.ts if needed
+- **User will execute tests** - test execution is not AI's responsibility

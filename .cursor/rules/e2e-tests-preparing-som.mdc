@@ -1,0 +1,1093 @@
+---
+alwaysApply: true
+---
+# Screen Object Model (SOM) Generation Guide
+
+## Overview
+
+# Ensure you make any changes for e2e in the architecture, you always update the relavant rules, like e2e-tests-preparing-som or e2e-tests-writing-automation
+
+When user writes `@e2e-prepare-som @Screen`, AI must intelligently generate or update a Screen Object Model (SOM) file for the specified screen. The SOM serves as the single source of truth for E2E test automation, defining all locators, element identifiers, and screen navigation context.
+
+**⚠️ MANDATORY WORKFLOW: AI MUST capture actual page source from Appium BEFORE writing SOM. This is not optional.**
+
+**⚠️ IMPORTANT ARCHITECTURE UNDERSTANDING:**
+- **Each screen has ONE E2E test file** (e.g., `LandingPage.spec.ts`, `VerifyOtp.spec.ts`)
+- **Each test operates on ONE screen only**
+- **Tests run in FLOWS** - you cannot run a single screen test in isolation
+- **To test a screen, you must run the COMPLETE FLOW from the FIRST screen (usually Landing) to the target screen**
+- **CRITICAL**: When running a test for a target screen, the test will automatically execute ALL flows from Landing to the target screen
+
+**Flow Execution Examples:**
+
+**Example 1: To capture page source for `VerifyOtp`:**
+- **Path**: Landing → VerifyOtp
+- **Run**: `E2E_TEST_FILTER=LandingPage,VerifyOtpPage yarn test:ios:dev`
+- **This will run**:
+  1. **LandingPage test** → executes Landing flow (`login with phone number` from `Landing.model.ts`) → navigates to VerifyOtp
+  2. **VerifyOtpPage test** → executes VerifyOtp flow (`verify otp` from `VerifyOtp.model.ts`) → stays on VerifyOtp
+  3. **Capture page source** on VerifyOtp screen
+
+**Example 2: To capture page source for `RegisterUser`:**
+- **Path**: Landing → VerifyOtp → RegisterUser
+- **Run**: `E2E_TEST_FILTER=LandingPage,VerifyOtpPage,RegisterUserPage yarn test:ios:dev`
+- **This will run**:
+  1. **LandingPage test** → executes Landing flow (`login with phone number`) → navigates to VerifyOtp
+  2. **VerifyOtpPage test** → executes VerifyOtp flow (`verify otp`) → navigates to RegisterUser
+  3. **RegisterUserPage test** → executes RegisterUser flow (from `RegisterUser.model.ts`) → stays on RegisterUser
+  4. **Capture page source** on RegisterUser screen
+
+**Key Points:**
+- **Tests are designed to handle navigation** from previous screens in the flow
+- **Each test file executes the COMPLETE flow path** from Landing to its target screen
+- **Page source is captured** when tests reach the target screen during flow execution
+- **No manual navigation needed** - the test file handles all flow execution automatically
+
+**CRITICAL RULES:**
+- **MANDATORY: Capture page source from existing tests or debug files BEFORE writing SOM**
+- **MANDATORY: Use BOTH page source (from Appium) AND source code to build SOM**
+- **MANDATORY: Verify all locators in actual page source - use rendered values, not just expected values**
+- **NEVER create temporary tests** - use existing tests or run all tests in flows
+- **NEVER generate `availableFlows` unless user explicitly provides flow context**
+- **If SOM already exists, only update/add new selectors - preserve existing structure**
+- **Always analyze page source (like Appium) to discover actual selectors**
+- **Learn from existing SOM patterns, especially `Landing.model.ts`**
+- **Use screen code to understand component structure and testID patterns**
+- **Read existing SOM files to understand navigation paths to reach target screen**
+- **Read existing test files to understand how tests handle navigation in flows**
+- **⚠️ NOTE: Test execution happens after ALL E2E files are written (see `@e2e-generate` rule), not just after creating SOM**
+
+## File Structure
+
+All SOM files must be created in `e2e/models/` folder following this pattern:
+
+```
+e2e/models/
+  [ScreenName].model.ts    # Screen Object Model class
+```
+
+**Naming Convention:**
+- File: `[ScreenName].model.ts` (PascalCase, ends with `.model.ts`)
+- Class: `[ScreenName]Screen` (PascalCase, ends with `Screen`)
+
+## SOM Class Structure
+
+Every SOM class must follow this structure:
+
+```typescript
+/**
+ * [Screen Name] Screen Object Model
+ *
+ * This class represents the [screen description] and provides
+ * @screen code at file: src/features/[feature]/screens/[ScreenName]Screen.tsx
+ */
+export class [ScreenName]Screen {
+  // Element locators (resourceId, name, text)
+  getElementName = {
+    resourceId: 'selector-pattern',
+    name: 'selector-pattern',
+    text: 'optional-text', // Only if text is stable and unique
+  };
+
+  // Navigation context - screens that can be navigated to from this screen
+  navigableScreens: string[] = [
+    'NextScreen1',
+    'NextScreen2',
+  ];
+
+  // Flows - ONLY include if user explicitly provided flow context
+  // Support both old format (simple array) and new format (object with metadata)
+  
+  // Old Format (Simple Array - Still Supported):
+  availableFlows = {
+    'flow name': [
+      'step 1 description',
+      'step 2 description',
+    ],
+  };
+  
+  // New Format (With Metadata - Recommended for Multiple Flows):
+  availableFlows = {
+    'flow name': {
+      steps: [
+        'step 1 description',
+        'step 2 description',
+      ],
+      metadata: {
+        description: 'Human-readable description of the flow',
+        userType: 'new' | 'returning' | 'existing_new', // User type for this flow
+        envVars: {
+          phoneNumber: 'ENV_VAR_NAME', // Environment variable for phone number
+          otp: 'ENV_VAR_NAME', // Environment variable for OTP code
+        },
+        expectedNavigation: ['Screen1', 'Screen2'], // Expected navigation targets
+        keywords: ['keyword1', 'keyword2'], // Keywords for matching user instructions
+      },
+    },
+  };
+}
+```
+
+## Generation Strategy
+
+### Step 1: Gather Context
+
+**1.1 Read Screen Code:**
+- Locate screen file from `@screen code at file:` comment (if updating existing SOM)
+- Or search for screen in `src/features/` or `src/screens/`
+- Analyze component structure, props, navigation calls
+- Identify testID patterns using `testId()` helper from `src/utils/helpers/testIdHelper.ts`
+
+**1.2 Check Existing SOM Files:**
+- Read `e2e/models/Landing.model.ts` as reference pattern
+- Check other SOM files to understand navigation paths
+- Look for screens that navigate TO this screen (reverse navigation context)
+
+**1.3 Check Existing Tests:**
+- Review `e2e/pages/LandingPage.ts` for selector patterns
+- Check `e2e/tests/LandingPage.spec.ts` for usage examples
+- Understand how selectors are used in practice
+
+**1.4 Check and Add Missing testIDs (CRITICAL):**
+- **Analyze screen code for missing testIDs** on all interactive elements
+- **Identify elements that need testIDs for E2E testing:**
+  - Screen containers (use `testId('screen-container', 'screen')`)
+  - All buttons (use `accessibleTestId('button-name', 'feature')`)
+  - All input fields (use `accessibleTestId('input-name', 'feature')`)
+  - Navigation elements (links, tabs)
+  - Error messages and validation text
+  - Loading indicators
+  - List items (use prefix pattern with `testId('item-${id}', 'list')`)
+  - Modal/dialog containers
+  - Screen titles/headings (use `accessibleTestId('title', 'screen')`)
+
+- **Follow testID patterns from `@.cursor/rules/test-id-usage.mdc`:**
+  - Use `testId()` for containers (View, ScrollView, Screen)
+  - Use `accessibleTestId()` for leaf/interactive elements (Button, Input, Text)
+  - Always use feature parameter for organization (e.g., `'auth'`, `'order'`, `'profile'`)
+  - Use kebab-case naming: `'continue-button'`, `'phone-input'`
+  - Use `'screen'` feature for screen-level elements
+
+- **Add missing testIDs to screen code:**
+  ```typescript
+  // Example: Adding testID to button
+  <Button 
+    {...accessibleTestId('continue-button', 'auth')}  // Add this
+    title="Continue"
+    onPress={handleContinue}
+  />
+  
+  // Example: Adding testID to screen container
+  <Screen 
+    {...testId('screen-container', 'screen')}  // Add this
+    scrollable
+  >
+  
+  // Example: Adding testID to input
+  <Input 
+    {...accessibleTestId('email-input', 'auth')}  // Add this
+    placeholder="Email"
+  />
+  ```
+
+- **Verify testID patterns match expected SOM selectors:**
+  - Pattern: `{screenName}:{feature}:{componentName}` (with feature)
+  - Pattern: `{screenName}-{componentName}` (without feature)
+  - Pattern: `{screenName}:screen:{componentName}` (for screen-level elements)
+
+- **Document added testIDs:**
+  - Note which elements received testIDs
+  - Ensure all critical E2E elements have testIDs
+  - Verify testIDs follow naming conventions
+
+**IMPORTANT:** All testIDs added must follow the patterns defined in `@.cursor/rules/test-id-usage.mdc`. This ensures consistency and makes SOM generation accurate.
+
+### Step 2: Capture Page Source from Appium (MANDATORY)
+
+**⚠️ CRITICAL: AI MUST capture actual page source from Appium BEFORE writing SOM. This step is MANDATORY and cannot be skipped.**
+
+**⚠️ IMPORTANT ARCHITECTURE UNDERSTANDING:**
+- **Each screen has ONE E2E test file** (e.g., `LandingPage.spec.ts`, `VerifyOtp.spec.ts`)
+- **Each test operates on ONE screen only**
+- **Tests run in FLOWS** - you cannot run a single screen test in isolation
+- **To test a screen, you must run the flow that leads to that screen** (e.g., to test VerifyOtp, run Landing → VerifyOtp flow)
+- **Tests are designed to handle navigation** from previous screens in the flow
+
+**2.1 Read All Existing SOM Files to Understand Complete Navigation Path:**
+- **Read ALL existing SOM files** in `e2e/models/` directory
+- **Build complete navigation path** from FIRST screen (usually Landing) to target screen
+- **Identify ALL screens in the path** and their flows:
+  - Example for `VerifyOtp`: Landing → VerifyOtp
+  - Example for `RegisterUser`: Landing → VerifyOtp → RegisterUser
+- **For each screen in the path**, understand:
+  - Which flow navigates to the next screen
+  - What the flow steps are (from `availableFlows` in SOM)
+- **Check existing Page Objects** (e2e/pages/) to see how flows are implemented
+- **Check existing test files** (e2e/tests/) to see how tests execute complete flows
+- **Example**: If target is `RegisterUser`:
+  - Path: Landing → VerifyOtp → RegisterUser
+  - `Landing.model.ts` → `navigableScreens: ['VerifyOtp']` → flow: `'login with phone number'`
+  - `VerifyOtp.model.ts` → `navigableScreens: ['RegisterUser']` → flow: `'verify otp'`
+  - `LandingPage.ts` → `loginWithPhoneNumber()` method executes Landing flow
+  - `VerifyOtpPage.ts` → `verifyOtp()` method executes VerifyOtp flow
+  - `RegisterUser.spec.ts` → shows how test executes Landing flow, then VerifyOtp flow, then RegisterUser flow
+
+**2.2 Check for Existing Debug Files First:**
+- **Check `e2e/debug/` folder** for existing page source files from previous test runs
+- **Look for files** matching patterns:
+  - `*-page-source-*.xml` (page source XML files)
+  - `*-testids-*.txt` (testID lists)
+  - `*-som-analysis-*.xml` (previous SOM analysis files)
+- **If debug files exist** for the target screen, use them for analysis
+- **If no debug files exist**, proceed to Step 2.3 to run tests
+
+**2.3 Run Existing Test to Capture Page Source (MANDATORY if no debug files):**
+- **CRITICAL**: AI MUST run the existing test for the target screen to capture page source
+- **CRITICAL**: The test filter MUST include ALL screens in the flow path from Landing to target screen
+- **The test will automatically execute the COMPLETE FLOW from Landing to target screen**
+- **Command to run**:
+  ```bash
+  # For iOS (default, recommended):
+  # Run ALL screens in the flow path (comma-separated)
+  # Format: E2E_TEST_FILTER=LandingPage,Screen2Page,Screen3Page,...,TargetScreenPage
+  E2E_TEST_FILTER=[LandingPage],[Screen2Page],...,[TargetScreenPage] yarn test:ios:dev
+  
+  # For Android:
+  E2E_TEST_FILTER=[LandingPage],[Screen2Page],...,[TargetScreenPage] yarn test:android:dev
+  
+  # Example 1: To capture VerifyOtp page source, run:
+  # Path: Landing → VerifyOtp
+  # E2E_TEST_FILTER=LandingPage,VerifyOtpPage yarn test:ios:dev
+  # This will:
+  #   1. Run LandingPage test → executes Landing flow → navigates to VerifyOtp
+  #   2. Run VerifyOtpPage test → executes VerifyOtp flow → stays on VerifyOtp
+  #   3. Capture page source on VerifyOtp screen
+  
+  # Example 2: To capture RegisterUser page source, run:
+  # Path: Landing → VerifyOtp → RegisterUser
+  # E2E_TEST_FILTER=LandingPage,VerifyOtpPage,RegisterUserPage yarn test:ios:dev
+  # This will:
+  #   1. Run LandingPage test → executes Landing flow → navigates to VerifyOtp
+  #   2. Run VerifyOtpPage test → executes VerifyOtp flow → navigates to RegisterUser
+  #   3. Run RegisterUserPage test → executes RegisterUser flow → stays on RegisterUser
+  #   4. Capture page source on RegisterUser screen
+  ```
+- **The tests will automatically:**
+  1. **Run LandingPage test first** → executes Landing flow → navigates to next screen
+  2. **Run each intermediate screen test** → executes that screen's flow → navigates to next screen
+  3. **Run target screen test** → executes target screen's flow → stays on target screen
+  4. **Capture page source** when the target screen test reaches the target screen
+- **IMPORTANT**: Always include `LandingPage` in the filter (it's the first screen in all flows)
+- **IMPORTANT**: Include all screens in the navigation path, not just the target screen
+- **Debug files are automatically created** by the test framework in `e2e/debug/` folder
+- **Monitor test execution** - ensure it successfully executes all flows and reaches target screen
+- **Verify debug files are created** in `e2e/debug/` folder:
+  - `*-page-source-*.xml` (full page source XML)
+  - `*-testids-*.txt` (list of all testIDs)
+  - Other debug files from test execution
+
+**2.4 Alternative: Run All Tests (if specific test doesn't exist yet):**
+- **If test file doesn't exist yet** for the target screen:
+  - **Run all tests** to capture page source when screen is reached:
+    ```bash
+    # Run all tests (they run in flows)
+    yarn test:ios:dev
+    # or
+    yarn test:android:dev
+    ```
+  - **Tests will navigate through flows** and reach the target screen
+  - **Debug files will be created** when screen is reached
+  - **Look for debug files** in `e2e/debug/` folder after test run
+
+**2.5 Locate and Read Debug Files (MANDATORY):**
+- **After test execution**, locate debug files in `e2e/debug/` folder
+- **Use `glob_file_search`** to find most recent debug files for the screen:
+  - Search for: `*-page-source-*.xml` (page source XML files)
+  - Search for: `*-testids-*.txt` (testID list files)
+  - **Sort by modification time** to get most recent files
+- **Read the most recent page source XML file** for the target screen
+- **Read the most recent testIDs file** for the target screen
+- **If multiple files exist**, use the most recent one (from latest test run)
+
+**2.6 Analyze Page Source (MANDATORY):**
+- **Parse XML to extract all elements** with:
+  - `resource-id` (Android) / `name` (iOS) attributes
+  - `content-desc` (Android) / `accessibilityLabel` (iOS)
+  - `text` attributes (for stable text elements)
+- **Identify unique selectors** following testID patterns:
+  - Pattern 1: `{screenName}:{feature}:{componentName}` (with feature)
+  - Pattern 2: `{screenName}-{componentName}` (without feature)
+  - Pattern 3: `{screenName}:screen:{componentName}` (screen-level elements)
+- **Extract screen-specific selectors** (prefer selectors that include screen name)
+- **Map elements to component types**:
+  - Buttons (look for "button" in resource-id/name)
+  - Inputs (look for "input" in resource-id/name)
+  - Text elements (look for "text", "title", "label" in resource-id/name)
+  - Containers (look for "container", "wrapper", "view" in resource-id/name)
+  - Lists (look for "list", "item" in resource-id/name)
+  - Modals (look for "modal", "dialog", "sheet" in resource-id/name)
+
+**2.7 Cross-Reference Page Source with Screen Code:**
+- **Compare page source elements** with testIDs found in screen code
+- **Identify elements in page source** that don't have testIDs in screen code (need to add)
+- **Identify elements in screen code** that don't appear in page source (may be conditional/hidden)
+- **Verify testID patterns** match between page source and screen code
+- **Document discrepancies** for later resolution
+
+### Step 3: Extract Selectors from Screen Code (Use BOTH Page Source AND Source Code)
+
+**⚠️ CRITICAL: AI MUST use BOTH page source (from Appium) AND source code to build accurate SOM. Never rely on only one source.**
+
+**3.1 Analyze testID Usage in Screen Code:**
+- Search for `testId()` calls in screen code
+- Search for `accessibleTestId()` calls
+- Search for hardcoded `testID` props
+- Map testID patterns to component names
+- **Cross-reference with page source** - verify testIDs from code appear in page source
+
+**3.2 Identify Element Types from BOTH Sources:**
+- **From Screen Code:**
+  - **Inputs**: Text inputs, phone inputs, search inputs
+  - **Buttons**: Primary buttons, secondary buttons, icon buttons
+  - **Lists**: FlatList, SectionList, ScrollView with items
+  - **Modals**: Bottom sheets, dialogs, pickers
+  - **Text**: Headings, labels, descriptions
+  - **Containers**: Views, ScrollViews, screens
+
+- **From Page Source:**
+  - **Extract all elements** with resource-id/name attributes
+  - **Group by element type** (button, input, text, container, list, modal)
+  - **Identify screen-specific patterns** (elements with screen name in testID)
+  - **Identify generic components** (elements without screen name, e.g., "atom-input")
+
+**3.3 Merge Information from Both Sources:**
+- **Create unified element list** combining:
+  - Elements found in page source (actual rendered elements)
+  - Elements found in screen code (expected elements)
+- **Identify missing elements**:
+  - In page source but not in code → May need to add testIDs to code
+  - In code but not in page source → May be conditional/hidden, document in SOM
+- **Verify testID patterns match**:
+  - Screen code testIDs should match page source resource-id/name
+  - If mismatch, use page source as source of truth (actual rendered values)
+
+**3.4 Map to SOM Properties:**
+- Create descriptive property names: `get[ElementType][Purpose]`
+- **Use page source to verify** element names are accurate
+- **Use screen code to understand** element purpose and context
+- Examples:
+  - `getPhoneNumberInput` (not `getInput1`) - verified in both sources
+  - `getContinueButton` (not `getButton`) - verified in both sources
+  - `getCountryDropdown` (not `getDropdown`) - verified in both sources
+  - `getCountryList` (not `getList`) - verified in both sources
+
+### Step 4: Build SOM Locator Objects (Using BOTH Page Source AND Source Code)
+
+**⚠️ CRITICAL: Build locators using actual values from page source, verified against screen code patterns.**
+
+**4.1 Locator Structure:**
+Each locator must include:
+- `resourceId`: Primary selector (testID pattern) - **MUST match page source**
+- `name`: Same as resourceId (for iOS compatibility) - **MUST match page source**
+- `text`: Only if text is stable, unique, and doesn't change - **Verify in page source**
+
+**4.2 Selector Priority (Verify in Page Source First):**
+1. **Screen-specific testID** (e.g., `phone-number-add:screen:title`) - **Check page source for exact value**
+2. **Feature-specific testID** (e.g., `phone-number-add:auth:continue-button`) - **Check page source for exact value**
+3. **Component testID** (e.g., `phone-number-add-continue-button`) - **Check page source for exact value**
+4. **Fallback**: Stable text content (only if unique) - **Verify text exists in page source**
+
+**4.3 Verification Process:**
+- **For each locator**:
+  1. Find element in page source XML (search by resource-id or name)
+  2. Extract exact resource-id/name value from page source
+  3. Verify it matches expected pattern from screen code
+  4. If mismatch, use page source value (actual rendered value is source of truth)
+  5. Document any discrepancies
+
+**4.3 Pattern Examples:**
+
+```typescript
+// Screen title/heading
+getScreenTitle = {
+  resourceId: 'phone-number-add:screen:title',
+  name: 'phone-number-add:screen:title',
+};
+
+// Feature-specific button
+getContinueButton = {
+  resourceId: 'phone-number-add:auth:continue-button',
+  name: 'phone-number-add:auth:continue-button',
+};
+
+// Generic component (no feature)
+getPhoneInput = {
+  resourceId: 'phone-number-add-phone-input',
+  name: 'phone-number-add-phone-input',
+};
+
+// List items (with prefix pattern)
+getCountryItem = {
+  resourceId: 'country-selector-',  // Prefix pattern for list items
+  name: 'country-selector-',
+};
+
+// Dropdown with dynamic text (use resourceId only)
+getCountryDropdown = {
+  resourceId: 'phone-number-add-country-picker-container',
+  name: '🇦🇪 +971',  // Initial/default text
+  text: '+971',       // Stable text portion
+};
+```
+
+**4.4 Special Cases:**
+
+**List Items:**
+- Use prefix pattern (e.g., `country-selector-`)
+- Add comment explaining how to use: `const items = await $$('//*[contains(@resource-id, "country-selector-")]');`
+- Example: `country-selector-AE`, `country-selector-PK`, etc.
+
+**Dynamic Text Elements:**
+- If text changes (e.g., selected country), only use `resourceId` in state checks
+- Include `name`/`text` for initial/default state only
+
+**Modals/Dialogs:**
+- Identify modal container selectors
+- Identify modal content selectors
+- Note if modal is dismissible and how
+
+### Step 5: Determine Navigation Context
+
+**5.1 Find Navigation Targets:**
+- Analyze screen code for `navigation.navigate()` calls
+- Check for button handlers that navigate
+- Look for deep link configurations
+- Review navigation type definitions in `src/types/screens.types.ts`
+
+**5.2 Build navigableScreens Array:**
+- List all screens that can be navigated to from this screen
+- Use exact screen names from `ScreenNames` type
+- Include conditional navigations (if applicable)
+- Example:
+```typescript
+navigableScreens: string[] = [
+  'VerifyOtp',      // After phone number entry
+  'Terms',          // Terms link
+  'Home',           // Skip button (if guest mode)
+];
+```
+
+**5.3 Reverse Navigation (How to Reach This Screen):**
+- Check other SOM files for screens that navigate TO this screen
+- Add comments in SOM about how to reach this screen
+- Example: "This screen can be reached from Landing screen after phone entry"
+
+### Step 6: Handle availableFlows (CRITICAL)
+
+**6.1 NEVER Generate Flows Unless:**
+- User explicitly provides flow context in the prompt
+- User mentions "flows", "steps", "user journey", "test scenarios"
+- User provides a list of actions/steps
+- User mentions multiple flows (e.g., "add flow for new user", "add flow for returning user")
+
+**6.2 If User Provides Single Flow Context:**
+- Parse user's flow description
+- Break down into individual steps
+- Use natural language for step descriptions
+- Include edge cases (e.g., "if ATT popup appears, dismiss it")
+- **Use old format (simple array) for single flow:**
+- **Use when**: Screen action is the same for all user types (e.g., VerifyOtp - OTP entry is same for all)
+```typescript
+availableFlows = {
+  'verify otp': [
+    'screen opens displaying instruction text with phone number, OTP input field, and resend code button',
+    'user can resend the OTP code by tapping the resend code button.',
+    'OTP is automatically submitted when all 4 digits are entered, otp is in {DEV_USER_OTP} & User will get redirected to RegisterUser or Home screen after successful OTP verification based on user type',
+  ],
+};
+```
+
+**Note:** If screen later needs multiple flows (e.g., user requests "add flow for new user"), convert to new format with metadata.
+
+**6.3 If User Provides Multiple Flows Context:**
+- **ALWAYS use new format (object with metadata)** when multiple flows are provided
+- Each flow should have:
+  - `steps`: Array of step descriptions
+  - `metadata`: Object with description, userType, envVars, expectedNavigation, keywords
+- **When to use multiple flows**: When screen has variations that require different inputs (e.g., different phone numbers for different user types)
+- Example (Landing screen with phone number variations):
+```typescript
+availableFlows = {
+  'login with phone number for new user': {
+    steps: [
+      'on initial page load there can be ATT popup, if so dismiss it by tapping Allow or Dont Allow',
+      'tap on country code dropdown to open country list',
+      'type in country Pakistan filter input to filter country list',
+      'select first country from the country list after filtering',
+      'enter phone number in phone input field, phone number is in {NEW_USER_PHONE_NUMBER}',
+      'tap on continue button to proceed to OTP screen',
+    ],
+    metadata: {
+      description: 'Login with phone number for a new user who needs to register',
+      userType: 'new',
+      envVars: {
+        phoneNumber: 'NEW_USER_PHONE_NUMBER',
+      },
+      expectedNavigation: ['VerifyOtp'],
+      keywords: ['new user', 'create profile', 'register', 'new profile', 'sign up'],
+    },
+  },
+  'login with phone number for returning user': {
+    steps: [
+      'on initial page load there can be ATT popup, if so dismiss it by tapping Allow or Dont Allow',
+      'tap on country code dropdown to open country list',
+      'type in country Pakistan filter input to filter country list',
+      'select first country from the country list after filtering',
+      'enter phone number in phone input field, phone number is in {EXISTING_USER_PHONE_NUMBER}',
+      'tap on continue button to proceed to OTP screen',
+    ],
+    metadata: {
+      description: 'Login with phone number for a returning/registered user',
+      userType: 'returning',
+      envVars: {
+        phoneNumber: 'EXISTING_USER_PHONE_NUMBER',
+      },
+      expectedNavigation: ['VerifyOtp'],
+      keywords: ['returning user', 'existing user', 'login', 'sign in', 'returner'],
+    },
+  },
+};
+```
+
+**6.3.1 When to Use Single Flow vs Multiple Flows:**
+
+**Use Multiple Flows When:**
+- Screen has variations that require different inputs (e.g., different phone numbers for different user types)
+- Different user types need different data (e.g., Landing screen: new user vs returning user phone numbers)
+- Example: **Landing screen** - has 3 flows for different phone numbers (new user, returning user, existing new user)
+
+**Use Single Flow When:**
+- Screen action is the same regardless of user type (e.g., entering OTP is same for all users)
+- Only the input data varies, but the action itself doesn't change
+- Navigation outcome is determined by backend based on previous screen's data, not by the current screen's flow
+- Example: **VerifyOtp screen** - single flow because OTP entry is same for all, navigation (RegisterUser vs Home) is determined by phone number used in Landing screen
+
+**Example (VerifyOtp screen with single flow):**
+```typescript
+availableFlows = {
+  'verify otp': [
+    'screen opens displaying instruction text with phone number, OTP input field, and resend code button',
+    'user can resend the OTP code by tapping the resend code button.',
+    'OTP is automatically submitted when all 4 digits are entered, otp is in {DEV_USER_OTP} & User will get redirected to RegisterUser or Home screen after successful OTP verification based on user type',
+  ],
+};
+```
+
+**6.4 If User Does NOT Provide Flow Context:**
+- **DO NOT include `availableFlows` property**
+- Leave it for QA to manually write
+- Add comment: `// availableFlows - To be defined by QA team`
+
+**6.5 When Adding New Flows to Existing SOM:**
+- If SOM already has flows, check if they're in old format (array) or new format (object)
+- If old format exists and user wants to add multiple flows, convert to new format
+- If new format exists, add new flow to existing structure
+- Ensure all flows follow the same format (all old or all new)
+
+### Step 7: Update Existing SOM (If Applicable)
+
+**7.1 If SOM Already Exists:**
+- Read existing SOM file
+- **PRESERVE existing structure** (don't rewrite)
+- **ONLY update/add selectors** that are:
+  - New (not in existing SOM)
+  - Changed (selector pattern updated in code)
+  - Missing (found in page source but not in SOM)
+
+**7.2 Preserve Existing Content:**
+- Keep all existing locators (unless they're wrong)
+- Keep existing `availableFlows` (if present)
+- Keep existing `navigableScreens` (update if new screens added)
+- Preserve comments and documentation
+
+**7.3 Add New Selectors:**
+- Add new selectors at the end of the class (before `navigableScreens`)
+- Follow existing naming conventions
+- Add comments explaining new selectors if needed
+
+### Step 8: Write SOM File
+
+**8.1 File Template:**
+```typescript
+/**
+ * [Screen Name] Screen Object Model
+ *
+ * This class represents the [screen description] and provides
+ * locators and navigation context for E2E test automation.
+ * @screen code at file: src/features/[feature]/screens/[ScreenName]Screen.tsx
+ */
+export class [ScreenName]Screen {
+  // Initial display elements
+  getScreenTitle = {
+    resourceId: '[screen-name]:screen:title',
+    name: '[screen-name]:screen:title',
+  };
+
+  // Input fields
+  getInputField = {
+    resourceId: '[screen-name]:feature:input',
+    name: '[screen-name]:feature:input',
+  };
+
+  // Buttons
+  getPrimaryButton = {
+    resourceId: '[screen-name]:feature:button',
+    name: '[screen-name]:feature:button',
+  };
+
+  // Lists (if applicable)
+  // this is a list of items, it can be fetched as a list of elements & picked one
+  // example: item-selector-A, item-selector-B, etc.
+  // example how to click: const items = await $$('//*[contains(@resource-id, "item-selector-")]');
+  // example how to click: await items[0].click();
+  getListItem = {
+    resourceId: 'item-selector-',
+    name: 'item-selector-',
+  };
+
+  // Navigation context
+  navigableScreens: string[] = [
+    'NextScreen1',
+    'NextScreen2',
+  ];
+
+  // Flows - ONLY if user provided flow context
+  // availableFlows - To be defined by QA team
+}
+```
+
+**8.2 Comments and Documentation:**
+- Add JSDoc comment at class level
+- Add `@screen code at file:` comment with actual file path
+- Add inline comments for complex selectors (lists, modals, dynamic elements)
+- Add usage examples for list items
+
+**8.3 Code Quality:**
+- Use consistent naming (camelCase for properties)
+- Group related selectors together
+- Add section comments (e.g., `// Input fields`, `// Buttons`)
+- Follow existing patterns from `Landing.model.ts`
+
+### Step 9: Update SOM Metadata File (MANDATORY)
+
+**CRITICAL: AI MUST update `e2e/models/som-metadata.ts` immediately after creating or updating any SOM file.**
+
+**9.1 When Creating New SOM:**
+- Add new entry to `SOM_METADATA` object
+- Include all required fields: `screenName`, `screenCodePath`, `navigableScreens`, `flows`, `identifyingSelector`
+- Use abbreviated step descriptions (keep concise)
+- Include flow metadata if available (userType, envVars, expectedNavigation, keywords)
+
+**9.2 When Updating Existing SOM:**
+- Update corresponding entry in `SOM_METADATA`
+- Update `navigableScreens` if navigation changed
+- Update `flows` if flows were added/removed/modified
+- Update `identifyingSelector` if primary selector changed
+- Update `screenCodePath` if screen code moved
+
+**9.3 Keeping Metadata Concise:**
+- **Abbreviate step descriptions**: Use short phrases instead of full sentences
+  - ✅ Good: `'enter phone {ENV_VAR}'`
+  - ❌ Bad: `'user enters phone number in phone input field, phone number is in {ENV_VAR}'`
+- **Use arrow notation for navigation**: `'tap continue → VerifyOtp'` instead of `'tap on continue button to proceed to OTP screen'`
+- **Omit verbose descriptions**: Keep only essential information
+- **Use flow names as keys**: Don't duplicate flow descriptions
+- **Include only essential metadata**: userType, envVars, expectedNavigation, keywords (omit verbose descriptions)
+
+**9.4 Example Metadata Entry:**
+```typescript
+Landing: {
+  screenName: 'Landing',
+  screenCodePath: 'src/features/auth/screens/LandingScreen.tsx',
+  navigableScreens: ['VerifyOtp', 'Terms', 'Home'],
+  flows: {
+    'login with phone number for new user': {
+      steps: [
+        'dismiss ATT popup if present',
+        'tap country dropdown',
+        'filter country list (Pakistan)',
+        'select first country',
+        'enter phone {NEW_USER_PHONE_NUMBER}',
+        'tap continue → VerifyOtp',
+      ],
+      metadata: {
+        userType: 'new',
+        envVars: {phoneNumber: 'NEW_USER_PHONE_NUMBER'},
+        expectedNavigation: ['VerifyOtp'],
+        keywords: ['new user', 'register', 'sign up'],
+      },
+    },
+  },
+  identifyingSelector: 'phone-number-add:screen:title',
+},
+```
+
+**9.5 Identifying Selector Selection:**
+- Use the **most unique element** from SOM (typically screen title or unique button)
+- Prefer screen-specific testID patterns (e.g., `{screenName}:screen:title`)
+- Should be stable and always present on the screen
+- Used for screen detection in E2E tests
+
+**9.6 Flow Metadata Extraction:**
+- If flow has metadata (new format), extract: userType, envVars, expectedNavigation, keywords
+- If flow is simple array (old format), set `metadata: undefined`
+- Abbreviate step descriptions while preserving essential information
+- Use environment variable names from flow steps (e.g., `{ENV_VAR_NAME}` → `'ENV_VAR_NAME'`)
+
+**9.7 Verification:**
+- Ensure metadata entry matches SOM file exactly
+- Verify `navigableScreens` matches SOM's `navigableScreens` array
+- Verify `flows` match SOM's `availableFlows` (if present)
+- Verify `identifyingSelector` exists in SOM file
+- Verify `screenCodePath` is correct
+
+### Step 10: Cleanup
+
+**10.1 Keep Debug Files:**
+- **Keep debug files** in `e2e/debug/` for reference and future analysis
+- Debug files are useful for troubleshooting and verifying selectors
+
+**10.2 Verify SOM:**
+- Check that all selectors follow testID patterns
+- Verify `navigableScreens` includes all navigation targets
+- Ensure `availableFlows` is only present if user provided context
+- Validate file follows TypeScript syntax
+- **Verify metadata file was updated** (Step 9)
+
+### Step 11: Test Execution (Part of @e2e-generate workflow)
+
+**NOTE: This step is executed in `@e2e-generate @Screen` workflow, not in `@e2e-prepare-som`. AI should only write the SOM file, not execute tests.**
+
+## Selector Best Practices
+
+### 1. TestID Pattern Recognition
+
+**Pattern Analysis:**
+- `{screenName}:{feature}:{component}` → Feature-specific element
+- `{screenName}-{component}` → Generic component
+- `{screenName}:screen:{element}` → Screen-level element
+
+**Example from LandingScreen:**
+- `phone-number-add:screen:title` → Screen title
+- `phone-number-add:auth:continue-button` → Auth feature button
+- `phone-number-add-country-picker-container` → Country picker container
+
+### 2. Stable vs Dynamic Selectors
+
+**Stable Selectors (Always Use):**
+- testID/resource-id (doesn't change)
+- Screen-specific identifiers
+- Component testIDs
+
+**Dynamic Selectors (Use Carefully):**
+- Text content (only if unique and stable)
+- Dynamic values (country codes, phone numbers)
+- User-generated content
+
+### 3. List Item Patterns
+
+**Prefix Pattern:**
+```typescript
+getCountryItem = {
+  resourceId: 'country-selector-',  // Prefix
+  name: 'country-selector-',
+};
+// Actual IDs: country-selector-AE, country-selector-PK, etc.
+```
+
+**Usage in Tests:**
+```typescript
+const items = await $$('//*[contains(@resource-id, "country-selector-")]');
+await items[0].click();
+```
+
+### 4. Modal/Dialog Patterns
+
+**Modal Container:**
+```typescript
+getCountryListModal = {
+  resourceId: 'list-countries',
+  name: 'list-countries',
+};
+```
+
+**Modal Content:**
+```typescript
+getCountryFilterInput = {
+  resourceId: 'phone-number-add-country-filter-input',
+  name: 'phone-number-add-country-filter-input',
+};
+```
+
+## Navigation Context Strategy
+
+### 1. Finding Navigation Targets
+
+**From Screen Code:**
+- Search for `navigation.navigate('ScreenName')`
+- Check button `onPress` handlers
+- Review navigation params
+
+**From Type Definitions:**
+- Check `src/types/screens.types.ts` for screen param types
+- Review navigation stack configurations
+- Check deep link mappings
+
+**From Other SOM Files:**
+- Find screens that navigate TO this screen
+- Understand navigation flow
+- Identify entry points
+
+### 2. Building navigableScreens Array
+
+**Include:**
+- Direct navigation targets (buttons, links)
+- Conditional navigation (if user is guest, if feature enabled)
+- Deep link targets
+- Modal/dialog targets
+
+**Exclude:**
+- Back navigation (handled automatically)
+- System dialogs (ATT popup, permissions)
+- Error screens (unless part of flow)
+
+## Common Patterns from Landing.model.ts
+
+### 1. Screen Title/Heading
+```typescript
+getItStartedHeading = {
+  resourceId: 'phone-number-add:screen:title',
+  name: 'phone-number-add:screen:title',
+};
+```
+
+### 2. Dropdown with Dynamic Text
+```typescript
+getCountryDropdown = {
+  resourceId: 'phone-number-add-country-picker-container',
+  name: '🇦🇪 +971',  // Initial/default
+  text: '+971',      // Stable portion
+};
+```
+
+### 3. List Items with Prefix
+```typescript
+// Comment explaining usage
+getCountryItem = {
+  resourceId: 'country-selector-',
+  name: 'country-selector-',
+};
+```
+
+### 4. Input Fields
+```typescript
+getPhoneNumberInput = {
+  resourceId: 'atom-input',  // Generic component
+  name: 'atom-input',
+};
+```
+
+### 5. Feature-Specific Buttons
+```typescript
+getContinueButton = {
+  resourceId: 'phone-number-add:auth:continue-button',
+  name: 'phone-number-add:auth:continue-button',
+};
+```
+
+## Validation Checklist
+
+Before finalizing SOM file, verify:
+
+- [ ] **All interactive elements in screen code have testIDs** (buttons, inputs, links, etc.)
+- [ ] **All testIDs follow patterns from `@.cursor/rules/test-id-usage.mdc`**
+- [ ] **All testIDs from screen code are included in SOM**
+- [ ] All selectors follow testID patterns from screen code
+- [ ] Selectors match page source analysis
+- [ ] Property names are descriptive and follow naming conventions
+- [ ] `navigableScreens` includes all navigation targets
+- [ ] `availableFlows` is ONLY present if user provided flow context
+- [ ] Comments explain complex selectors (lists, modals, dynamic elements)
+- [ ] File follows TypeScript syntax and existing patterns
+- [ ] `@screen code at file:` comment points to actual screen file
+- [ ] All selectors have both `resourceId` and `name` properties
+- [ ] List items have usage examples in comments
+- [ ] Screen container has testID (if needed for E2E)
+- [ ] All buttons have testIDs with `accessibleTestId()`
+- [ ] All inputs have testIDs with `accessibleTestId()`
+- [ ] Screen title/heading has testID (if needed for verification)
+
+## Example: Complete SOM File
+
+See `e2e/models/Landing.model.ts` for a complete reference implementation.
+
+## AI Agent Instructions
+
+**When user writes `@e2e-prepare-som @Screen`:**
+
+> **⚠️ NOTE: This rule is for creating/updating SOM files only. Test execution happens in `@e2e-generate @Screen` after ALL files (SOM, Page Object, Spec) are written.**
+
+**⚠️ CRITICAL WORKFLOW: AI MUST follow these steps in order. Page source capture is MANDATORY before writing SOM.**
+
+1. **Gather Context:**
+   - Read screen code from `src/features/` or `src/screens/`
+   - **Read SOM metadata file** (`e2e/models/som-metadata.ts`) to understand navigation paths and screen relationships
+     - Use `SOM_METADATA` object for quick navigation analysis
+     - Use `findNavigationPath()` helper to find paths between screens
+     - Use `getScreensNavigatingTo()` helper to find screens that navigate to target
+     - **DO NOT read all individual SOM files** - metadata file contains all navigation information
+   - **Only read specific SOM files when needed** - Only read `[ScreenName].model.ts` when:
+     - Need to see exact locator patterns for reference
+     - Need to verify selector structure
+     - Metadata file is incomplete (then update it immediately)
+   - **Read existing Page Objects** in `e2e/pages/` to see navigation implementation
+   - Review existing tests for selector usage
+
+2. **Check and Add Missing testIDs (CRITICAL STEP):**
+   - **Analyze screen code** for all interactive elements (buttons, inputs, links, etc.)
+   - **Identify missing testIDs** that are needed for E2E testing
+   - **Add testIDs following patterns** from `@.cursor/rules/test-id-usage.mdc`:
+     - Use `testId()` for containers (Screen, View, ScrollView)
+     - Use `accessibleTestId()` for leaf elements (Button, Input, Text)
+     - Always include feature parameter (e.g., `'auth'`, `'order'`, `'profile'`)
+     - Use `'screen'` feature for screen-level elements (title, container)
+     - Follow kebab-case naming conventions
+   - **Update screen code** with missing testIDs before proceeding
+   - **Verify testID patterns** match expected SOM selector format
+
+3. **Capture Page Source (MANDATORY - DO NOT SKIP):**
+   - **First, check for existing debug files** in `e2e/debug/` folder from previous test runs
+   - **If debug files exist**, use them for analysis (skip to step 4)
+   - **If no debug files exist**, run existing tests to capture page source:
+     - **Understand the complete flow path** from Landing to target screen:
+       - Example: For VerifyOtp → Path: Landing → VerifyOtp
+       - Example: For RegisterUser → Path: Landing → VerifyOtp → RegisterUser
+     - **Build test filter** with ALL screens in the path (comma-separated):
+       - Format: `E2E_TEST_FILTER=LandingPage,Screen2Page,...,TargetScreenPage`
+       - **ALWAYS include LandingPage** (it's the first screen in all flows)
+       - Include all intermediate screens in the path
+       - Include the target screen
+     - **Run the tests** with the complete flow path:
+       ```bash
+       # Example for VerifyOtp (Path: Landing → VerifyOtp):
+       E2E_TEST_FILTER=LandingPage,VerifyOtpPage yarn test:ios:dev
+       
+       # Example for RegisterUser (Path: Landing → VerifyOtp → RegisterUser):
+       E2E_TEST_FILTER=LandingPage,VerifyOtpPage,RegisterUserPage yarn test:ios:dev
+       ```
+     - **The tests will automatically:**
+       1. Run LandingPage test → executes Landing flow → navigates to next screen
+       2. Run each intermediate screen test → executes that screen's flow → navigates to next screen
+       3. Run target screen test → executes target screen's flow → stays on target screen
+       4. Capture page source on target screen
+     - **Example**: Running `E2E_TEST_FILTER=LandingPage,VerifyOtpPage yarn test:ios:dev`:
+       - LandingPage test runs → executes Landing flow (login with phone number) → navigates to VerifyOtp
+       - VerifyOtpPage test runs → executes VerifyOtp flow → stays on VerifyOtp
+       - Captures page source on VerifyOtp
+   - **If test file doesn't exist yet**, run all tests:
+     ```bash
+     yarn test:ios:dev
+     ```
+     - Tests will navigate through complete flows and reach target screen
+     - Debug files will be created when screen is reached
+   - **Verify debug files are created** in `e2e/debug/` folder after test execution
+
+4. **Locate and Read Debug Files (MANDATORY - DO NOT SKIP):**
+   - **Use `glob_file_search`** to find most recent debug files in `e2e/debug/` folder:
+     - Search for: `*-page-source-*.xml`
+     - Search for: `*-testids-*.txt`
+     - **Sort by modification time** to get most recent files
+   - **Read the most recent page source XML file** for the target screen
+   - **Read the most recent testIDs file** for the target screen
+   - **Parse XML** to extract all elements with resource-id, name, text attributes
+   - **Extract all testIDs** and group by element type (button, input, text, container, list, modal)
+   - **Identify screen-specific patterns** (elements with screen name in testID)
+   - **Document all findings** for use in SOM creation
+
+5. **Cross-Reference Page Source with Screen Code:**
+   - **Compare page source elements** with testIDs found in screen code
+   - **Identify elements in page source** that don't have testIDs in screen code (may need to add)
+   - **Identify elements in screen code** that don't appear in page source (may be conditional/hidden)
+   - **Verify testID patterns** match between page source and screen code
+   - **Use page source as source of truth** for actual rendered values
+
+6. **Build SOM Using BOTH Sources:**
+   - **Create locator objects** using actual values from page source
+   - **Verify each locator** matches both page source and screen code patterns
+   - **Add `navigableScreens`** from navigation analysis (screen code)
+   - **ONLY add `availableFlows`** if user provided flow context
+   - **Ensure all testIDs from page source** are reflected in SOM (actual rendered elements)
+
+7. **Update or Create SOM File:**
+   - If SOM exists: Update/add selectors only, preserve structure
+   - If new: Create complete SOM file
+   - **Use page source values** for resourceId and name (actual rendered values)
+   - **Document any discrepancies** between page source and screen code
+
+8. **Update SOM Metadata File (MANDATORY):**
+   - **Read `e2e/models/som-metadata.ts`** to understand current structure
+   - **If creating new SOM**: Add new entry to `SOM_METADATA` object
+   - **If updating existing SOM**: Update corresponding entry in `SOM_METADATA`
+   - **Include all required fields**: screenName, screenCodePath, navigableScreens, flows, identifyingSelector
+   - **Keep metadata concise**: Use abbreviated step descriptions, arrow notation for navigation
+   - **Extract flow metadata**: Include userType, envVars, expectedNavigation, keywords if available
+   - **Select identifying selector**: Use most unique element from SOM (typically screen title)
+   - **Verify metadata matches SOM**: Ensure navigableScreens, flows, and identifyingSelector match SOM file
+
+9. **Cleanup:**
+   - Keep debug files in `e2e/debug/` for reference (they're useful for troubleshooting)
+   - Verify SOM follows all patterns
+   - Verify all testIDs from page source are in SOM
+   - **Verify metadata file was updated correctly**
+
+10. **Verify SOM Completeness:**
+   - Check that all selectors from page source are in SOM
+   - Verify `navigableScreens` includes all navigation targets
+   - Ensure all testIDs follow naming conventions
+   - **Verify locators match actual page source values** (not just expected values from code)
+   - **NOTE: Test execution happens in `@e2e-generate @Screen` after all files are written**
+
+**NOTE: Test execution and issue resolution happen in `@e2e-generate @Screen` workflow, not in `@e2e-prepare-som`. AI should only write the SOM file, not execute tests.**
+
+**CRITICAL REMINDERS:**
+- **ALWAYS capture page source FIRST** - run existing test or check debug files BEFORE writing SOM
+- **UNDERSTAND ARCHITECTURE**: Each screen has ONE test file, tests run in FLOWS (not individually)
+- **UNDERSTAND COMPLETE FLOW**: Tests automatically execute COMPLETE flow from Landing to target screen
+- **UNDERSTAND FLOW EXECUTION**: When running tests for target screen, you must:
+  1. **Include ALL screens in the flow path** in the test filter (comma-separated)
+  2. **ALWAYS include LandingPage** (first screen in all flows)
+  3. Include all intermediate screens in the path
+  4. Include the target screen
+  5. Tests will run in sequence: LandingPage → intermediate screens → target screen
+  6. Each test executes its flow and navigates to the next screen
+  7. Target screen test captures page source
+- **USE EXISTING TESTS**: Run ALL tests in the flow path (e.g., `E2E_TEST_FILTER=LandingPage,VerifyOtpPage`)
+- **CHECK DEBUG FILES FIRST**: Look for existing debug files in `e2e/debug/` before running tests
+- **ALWAYS use BOTH page source AND source code** - never rely on only one source
+- **ALWAYS verify locators in page source** - use actual rendered values, not just expected values
+- **ALWAYS check for missing testIDs** - add them to screen code before creating SOM
+- **ALWAYS analyze screen code** - understand component structure and testID patterns
+- **ALWAYS read SOM metadata file FIRST** - use `e2e/models/som-metadata.ts` for navigation analysis instead of reading all SOM files
+- **ONLY read individual SOM files when needed** - for specific locator details, not for navigation analysis
+- **ALWAYS read existing test files** - understand how tests execute complete flows from Landing to target
+- **NEVER create temporary tests** - use existing tests or run all tests
+- **NEVER assume flows** - only include if user explicitly provides
+- **NEVER guess selectors** - always verify in page source
+- **PRESERVE existing SOM** - only update/add selectors
+- **FOLLOW patterns** - learn from Landing.model.ts and test-id-usage.mdc
+- **ADD navigation context** - include `navigableScreens` array
+- **ENSURE testID consistency** - all testIDs from page source must be in SOM
+- **ALWAYS update metadata file** - update `e2e/models/som-metadata.ts` immediately after creating/updating SOM
+- **READ metadata file FIRST** - use `e2e/models/som-metadata.ts` for quick navigation analysis instead of reading all SOM files
+
+**NOTE: Test execution and issue resolution happen in `@e2e-generate @Screen` workflow, not in `@e2e-prepare-som`. AI should only write the SOM file, not execute tests.**
