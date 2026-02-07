@@ -16,7 +16,7 @@ export function registerWebhookHandlers(app) {
 
     Hey @${pull_request.user.login}! 🚀
 
-    Thank you for your hard work and dedication. Your contributions help Washmen deliver excellence every day!
+    Thanks for your awesome work!
 
     @${pull_request.user.login}, if this PR is ready for interactive E2E testing.
 
