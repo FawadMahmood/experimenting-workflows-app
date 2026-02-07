@@ -12,11 +12,13 @@ export function registerWebhookHandlers(app) {
         pull_number: pull_request.number
       });
       const filePath = files.length > 0 ? files[0].filename : 'README.md';
-      const body = `🎬 **E2E Test Runner Bot**
+      const body = `🎬 **Washmen Automation (E2E)**
 
-Hey there! 🚀
+    Hey @${pull_request.user.login}! 🚀
 
-@${pull_request.user.login}, if this PR is ready for interactive E2E testing.
+    Thank you for your hard work and dedication. Your contributions help Washmen deliver excellence every day!
+
+    @${pull_request.user.login}, if this PR is ready for interactive E2E testing.
 
 **👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**
 
