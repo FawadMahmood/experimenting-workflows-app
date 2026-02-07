@@ -94,21 +94,9 @@ For example:
             owner: repository.owner.login,
             repo: repository.name,
             comment_id: comment.id,
-            content: '+1'
+            content: 'eyes'
           });
           console.log(`Added reaction to comment ${comment.id}`);
-          // Fetch and log the body content of the bot's original comment
-          try {
-            const { data: botComment } = await octokit.rest.pulls.getReviewComment({
-              owner: repository.owner.login,
-              repo: repository.name,
-              comment_id: parent.id
-            });
-            console.log('Prompt for Cursor:', botComment.body);
-            console.log('Bot comment body:', botComment.body);
-          } catch (err) {
-            console.error('Could not fetch bot comment body:', err);
-          }
         }
       } catch (error) {
         console.error('Error processing reply:', error);
