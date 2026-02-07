@@ -11,7 +11,23 @@ export function registerWebhookHandlers(app) {
         pull_number: pull_request.number
       });
       const filePath = files.length > 0 ? files[0].filename : 'README.md';
-      const body = `🤖 Workflow run started for PR actions: [${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})\n\nTo run additional steps, reply to this review comment with any message.\n\nAvailable actions: run tests, deploy, lint, or run additional\n\n*Note: You can reply directly to this comment in the review thread.*`;
+      const body = `🎬 **E2E Test Runner Bot**
+
+    Hey there! 🚀
+
+    This PR is ready for interactive E2E testing.
+
+    **👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**
+
+    For example:
+    > login as new user and verify OTP
+    > checkout flow for returning user
+
+    ---
+    ✨ *Reply directly to this comment with your prompt and I'll handle the rest!* ✨
+
+    🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})
+    `;
       await octokit.rest.pulls.createReview({
         owner: repository.owner.login,
         repo: repository.name,
