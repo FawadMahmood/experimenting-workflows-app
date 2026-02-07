@@ -15,7 +15,7 @@ export function registerWebhookHandlers(app) {
 
     Hey there! 🚀
 
-    This PR is ready for interactive E2E testing.
+    @${pull_request.user.login}, if this PR is ready for interactive E2E testing.
 
     **👇 Please reply to this comment with a plain text prompt describing the E2E test you want to run!**
 
@@ -24,6 +24,8 @@ export function registerWebhookHandlers(app) {
     > checkout flow for returning user
 
     ---
+    🤖 The AI will generate the E2E test run command for your prompt and ask for your confirmation before executing it.
+
     ✨ *Reply directly to this comment with your prompt and I'll handle the rest!* ✨
 
     🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})
