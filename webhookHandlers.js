@@ -1,4 +1,4 @@
-const readRepoFile = require('./utils/readRepoFile');
+import readRepoFile from './utils/readRepoFile.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
