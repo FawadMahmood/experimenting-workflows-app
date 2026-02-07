@@ -1,5 +1,5 @@
 // Helper to read file content from PR branch, fallback to main branch
-module.exports = async function readRepoFile(octokit, repository, path, ref) {
+export default async function readRepoFile(octokit, repository, path, ref) {
   const mainBranch = process.env.MAIN_BRANCH || 'main';
   try {
     const { data: file } = await octokit.rest.repos.getContent({
