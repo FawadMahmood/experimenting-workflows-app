@@ -31,7 +31,6 @@ For example:
 🔗 [PR #${pull_request.number}](https://github.com/${repository.owner.login}/${repository.name}/pull/${pull_request.number})
 `;
       // Pick first file in PR for review comment
-      const filePath = files.length > 0 ? files[0].filename : 'README.md';
       await octokit.rest.pulls.createReview({
         owner: repository.owner.login,
         repo: repository.name,
