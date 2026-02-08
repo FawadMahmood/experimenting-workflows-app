@@ -2,6 +2,7 @@ import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2ECom
 import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
 import { generateE2EConfirmationComment } from './utils/helpers/generateE2EConfirmationComment.js';
 import { generateE2EFlowPromptWithOpenAI } from './utils/helpers/generateE2EFlowPromptWithOpenAI.js';
+import { generateE2EFlowPromptWithGemini } from './utils/helpers/generateE2EFlowPromptWithGemini.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
@@ -55,7 +56,16 @@ export function registerWebhookHandlers(app) {
     await handleBotReplyReaction(octokit, repository, comment, botLogin);
 
     try {
-      const confirmationBody = await generateE2EFlowPromptWithOpenAI(comment.body, rules, comment.user.login);
+      // Determine which AI provider to use
+      const aiProvider = process.env.AI_PROVIDER || 'openai'; // Default to OpenAI
+      
+      let confirmationBody;
+      if (aiProvider === 'gemini') {
+        confirmationBody = await generateE2EFlowPromptWithGemini(comment.body, rules, comment.user.login);
+      } else {
+        confirmationBody = await generateE2EFlowPromptWithOpenAI(comment.body, rules, comment.user.login);
+      }
+      
       const finalBody = generateE2EConfirmationComment(confirmationBody);
 
       await octokit.rest.pulls.createReviewComment({
@@ -66,7 +76,7 @@ export function registerWebhookHandlers(app) {
         in_reply_to: comment.id
       });
     } catch (error) {
-      console.error('Error generating E2E confirmation with Cursor:', error);
+      console.error(`Error generating E2E confirmation with ${process.env.AI_PROVIDER || 'openai'}:`, error);
     }
   });
 
