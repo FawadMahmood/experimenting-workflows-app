@@ -21,6 +21,34 @@ export async function generateE2EFlowPromptWithGemini(commentBody, rules, userLo
 Rules and context:
 ${rules.join('\n')}
 
+The Rules and context section above provides essential information about:
+- SOM (Screen Object Model) metadata for understanding app screens and flows
+- Available user types (new/returning/existing_new) and their environment variables
+- Navigation paths between screens
+- How E2E commands are structured and executed
+- Flow keywords and descriptions for matching user requests
+
+IMPORTANT: Analyze and understand the SOM (Screen Object Model) metadata provided in the rules. Use this metadata to:
+- Identify available screens and their navigation paths
+- Select appropriate flows based on user types (new/returning/existing_new)
+- Include correct environment variables from flow metadata
+- Ensure navigation follows expected paths
+- Match user requests with flow keywords and descriptions
+
+TEST SELECTION RULES (follow these exactly like the test utility):
+- Use deterministic flow matching with priority order
+- Match user instructions to flows using keywords and user types from metadata
+- Build navigation paths from Landing (entry point) to target screens
+- Include correct environment variables: EXISTING_USER_PHONE_NUMBER, NEW_USER_PHONE_NUMBER, EXISTING_NEW_USER_PHONE_NUMBER, DEV_USER_OTP
+- Generate E2E_TEST_FILTER based on screens in navigation path
+- Ensure navigation follows expected paths from SOM metadata
+
+FLOW MATCHING PRIORITY (highest to lowest):
+1. Exact flow name match (e.g., "login with phone number for returning user")
+2. Metadata keywords match (check flow.keywords array)
+3. User type match (new/returning/existing_new)
+4. Step description match (only if no metadata matches found)
+
 Please respond with ONLY a JSON object containing:
 - "scriptBlock": A string with the complete E2E test script in a code block format (e.g., \`\`\`sh\nE2E_TEST_FILTER=...\nE2E_FLOW_LANDING="flow description"\n...\n\`\`\`). The script must include E2E_FLOW_LANDING variable with a descriptive flow name.
 - "e2eSteps": An array of strings describing the test steps.
@@ -37,9 +65,6 @@ User request: ${commentBody}`;
     const response = await result.response;
     const text = response.text();
     
-    console.log('Gemini raw response:', text);
-    console.log('Gemini response length:', text.length);
-    
     // Parse JSON response - extract from markdown code blocks
     let jsonText = text.trim();
     
@@ -47,20 +72,15 @@ User request: ${commentBody}`;
     const jsonBlockMatch = jsonText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
     if (jsonBlockMatch) {
       jsonText = jsonBlockMatch[1];
-      console.log('Extracted JSON from code block:', jsonText);
     } else {
       // Fallback: try to find JSON object in the text
       const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         jsonText = jsonMatch[0];
-        console.log('Extracted JSON object:', jsonText);
       }
     }
     
-    console.log('Final JSON to parse:', jsonText);
-    
     const parsed = JSON.parse(jsonText);
-    console.log('Parsed JSON:', parsed);
     
     if (!parsed.scriptBlock || !parsed.e2eSteps) {
       throw new Error('Invalid response format from Gemini - missing scriptBlock or e2eSteps');
