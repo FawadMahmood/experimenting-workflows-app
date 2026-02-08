@@ -58,7 +58,7 @@ export function registerWebhookHandlers(app) {
     // These values are hardcoded for demo, but should be dynamically generated in real use
       const flowDescription = 'login with phone number for returning user';
         const contributorTag = `@${comment.user.login}`;
-          const scriptBlock = `\n\n\`\`\`sh\n# E2E Test Script\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage\nE2E_FLOW_LANDING="${flowDescription}"\nPLATFORM=ios\nDEV=true\nyarn test:ios:dev\n\`\`\``;
+          const scriptBlock = `\n\n\`\`\`sh\n\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage\nE2E_FLOW_LANDING="${flowDescription}"\nPLATFORM=ios\nDEV=true\nyarn test:ios:dev\n\`\`\``;
       const e2eSteps = [
         'dismiss ATT popup if present',
         'tap country dropdown',
@@ -67,9 +67,9 @@ export function registerWebhookHandlers(app) {
         'enter phone {EXISTING_USER_PHONE_NUMBER}',
         'tap continue → VerifyOtp'
       ];
-      const stepsList = e2eSteps.map((step, idx) => `- ${step}`).join('\n');
+      const stepsList = e2eSteps.map((step, idx) => `\u2022 ${step}`).join('\n');
       const confirmationBody = generateE2EConfirmationComment(
-        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Steps to be executed:**\n${stepsList}\n\n---\n\nBelow is the generated E2E test script.\n\n${scriptBlock}\n\n---\n\nIf you would like to proceed and run the E2E tests for this flow, please reply with **run e2e**.\n\n*If you have questions or want to modify the flow, reply with your feedback!*`
+        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- Reply with \"run e2e\" to execute the test.\n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
       );
 
     await octokit.rest.pulls.createReviewComment({
