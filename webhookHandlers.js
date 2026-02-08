@@ -58,13 +58,22 @@ export function registerWebhookHandlers(app) {
     // These values are hardcoded for demo, but should be dynamically generated in real use
       const flowDescription = 'login with phone number for returning user';
         const contributorTag = `@${comment.user.login}`;
-        const scriptBlock = `<E2E_SCRIPT_START>\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \
-       E2E_FLOW_LANDING="${flowDescription}" \
-       PLATFORM=ios \
-       DEV=true \
-       yarn test:ios:dev\n<E2E_SCRIPT_END>`;
+          const scriptBlock = `\n\n\`\`\`sh\n# <E2E_SCRIPT_START>\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \
+    E2E_FLOW_LANDING="${flowDescription}" \
+    PLATFORM=ios \
+    DEV=true \
+    yarn test:ios:dev\n# <E2E_SCRIPT_END>\n\`\`\``;
+      const e2eSteps = [
+        'dismiss ATT popup if present',
+        'tap country dropdown',
+        'filter country list (Pakistan)',
+        'select first country',
+        'enter phone {EXISTING_USER_PHONE_NUMBER}',
+        'tap continue → VerifyOtp'
+      ];
+      const stepsList = e2eSteps.map((step, idx) => `- ${step}`).join('\n');
       const confirmationBody = generateE2EConfirmationComment(
-          `${contributorTag},\n\nWashmen AI has generated the following E2E test script for the flow: \"${flowDescription}\".\n\nIf you would like to proceed and run the E2E tests for this flow, please reply with \"run e2e\".\n\n${scriptBlock}`
+        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Steps to be executed:**\n${stepsList}\n\n---\n\nBelow is the generated E2E test script.\n\n${scriptBlock}\n\n---\n\nIf you would like to proceed and run the E2E tests for this flow, please reply with **run e2e**.\n\n*If you have questions or want to modify the flow, reply with your feedback!*`
       );
 
     await octokit.rest.pulls.createReviewComment({
