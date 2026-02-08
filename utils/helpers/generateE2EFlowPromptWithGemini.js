@@ -38,10 +38,26 @@ User request: ${commentBody}`;
     const response = await result.response;
     const text = response.text();
     
-    // Parse JSON response
-    const parsed = JSON.parse(text);
+    console.log('Gemini raw response:', text);
+    console.log('Gemini response length:', text.length);
+    
+    // Parse JSON response - handle markdown code blocks
+    let jsonText = text.trim();
+    
+    // Remove markdown code block if present
+    if (jsonText.startsWith('```json')) {
+      jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    } else if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```\w*\s*/, '').replace(/\s*```$/, '');
+    }
+    
+    console.log('Cleaned JSON text:', jsonText);
+    
+    const parsed = JSON.parse(jsonText);
+    console.log('Parsed JSON:', parsed);
+    
     if (!parsed.scriptBlock || !parsed.e2eSteps) {
-      throw new Error('Invalid response format from Gemini');
+      throw new Error('Invalid response format from Gemini - missing scriptBlock or e2eSteps');
     }
 
     // Extract flow description from scriptBlock
