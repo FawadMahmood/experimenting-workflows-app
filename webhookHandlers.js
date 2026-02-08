@@ -1,6 +1,7 @@
 import readRepoFile from './utils/helpers/readRepoFile.js';
 import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2EComment.js';
 import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
+import { generateE2EConfirmationComment } from './utils/helpers/generateE2EConfirmationComment.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
@@ -52,6 +53,27 @@ export function registerWebhookHandlers(app) {
     // this is to react to user replies to the bot's initial comment, 
     // making it easier for maintainers to spot them that message is being processed.
     await handleBotReplyReaction(octokit, repository, comment, botLogin);
+
+    // Demo: Add confirmation script comment after reaction
+    // These values are hardcoded for demo, but should be dynamically generated in real use
+      const flowDescription = 'login with phone number for returning user';
+        const contributorTag = `@${comment.user.login}`;
+        const scriptBlock = `<E2E_SCRIPT_START>\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \
+       E2E_FLOW_LANDING="${flowDescription}" \
+       PLATFORM=ios \
+       DEV=true \
+       yarn test:ios:dev\n<E2E_SCRIPT_END>`;
+      const confirmationBody = generateE2EConfirmationComment(
+          `${contributorTag},\n\nWashmen AI has generated the following E2E test script for the flow: \"${flowDescription}\".\n\nIf you would like to proceed and run the E2E tests for this flow, please reply with \"run e2e\".\n\n${scriptBlock}`
+      );
+
+    await octokit.rest.pulls.createReply({
+      owner: repository.owner.login,
+      repo: repository.name,
+      pull_number: pull_request.number,
+      body: confirmationBody,
+      comment_id: comment.id
+    });
   });
 
   app.webhooks.onError((error) => {
