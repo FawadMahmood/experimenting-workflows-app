@@ -58,11 +58,7 @@ export function registerWebhookHandlers(app) {
     // These values are hardcoded for demo, but should be dynamically generated in real use
       const flowDescription = 'login with phone number for returning user';
         const contributorTag = `@${comment.user.login}`;
-          const scriptBlock = `\n\n\`\`\`sh\n# <E2E_SCRIPT_START>\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \
-    E2E_FLOW_LANDING="${flowDescription}" \
-    PLATFORM=ios \
-    DEV=true \
-    yarn test:ios:dev\n# <E2E_SCRIPT_END>\n\`\`\``;
+          const scriptBlock = `\n\n\`\`\`sh\n# E2E Test Script\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage\nE2E_FLOW_LANDING="${flowDescription}"\nPLATFORM=ios\nDEV=true\nyarn test:ios:dev\n\`\`\``;
       const e2eSteps = [
         'dismiss ATT popup if present',
         'tap country dropdown',
