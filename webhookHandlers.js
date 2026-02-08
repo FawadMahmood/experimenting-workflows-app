@@ -68,7 +68,7 @@ export function registerWebhookHandlers(app) {
       ];
       const stepsList = e2eSteps.map((step, idx) => `\u2022 ${step}`).join('\n');
       const confirmationBody = generateE2EConfirmationComment(
-        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- React with 🚀 to start the E2E test.\n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
+        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- Reply with "run e2e" to start the E2E test. \n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
       );
 
     await octokit.rest.pulls.createReviewComment({
@@ -78,29 +78,6 @@ export function registerWebhookHandlers(app) {
       body: confirmationBody,
       in_reply_to: comment.id
     });
-  });
-
-  // Reaction added (covers review comments, issues, etc.)
-  app.webhooks.on('reaction.created', async ({ octokit, payload }) => {
-    const { reaction, subject, repository } = payload;
-    // Only trigger if rocket emoji is used and subject is a pull request review comment
-    if (reaction.content === 'rocket' && subject && subject.type === 'PullRequestReviewComment') {
-      // Fetch the review comment to check its author and content
-      const { data: reviewComment } = await octokit.rest.pulls.getReviewComment({
-        owner: repository.owner.login,
-        repo: repository.name,
-        comment_id: subject.id
-      });
-      const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
-      const isBot = reviewComment.user && reviewComment.user.login === botLogin;
-      const hasE2EConfirmation = reviewComment.body && reviewComment.body.includes('🧪 E2E Test Confirmation') && reviewComment.body.includes('```sh');
-      if (isBot && hasE2EConfirmation) {
-        // Add your E2E test trigger logic here
-        console.log(`🚀 reaction detected on bot E2E confirmation comment ${subject.id} by ${reaction.user.login}`);
-        // Example: call your E2E test runner or workflow
-        // await triggerE2ETest(...);
-      }
-    }
   });
 
   app.webhooks.onError((error) => {
