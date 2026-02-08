@@ -6,10 +6,21 @@
  * @returns {Promise<string>} Formatted confirmation body
  */
 export async function generateE2EFlowPromptWithCursor(commentBody, rules, userLogin) {
-  const cursorAgentKey = process.env.CURSOR_AGENT_API_KEY;
-  if (!cursorAgentKey) {
+  const cursorAgentId = process.env.CURSOR_AGENT_API_KEY;
+  if (!cursorAgentId) {
+    console.error('CURSOR_AGENT_API_KEY not set in environment');
     throw new Error('CURSOR_AGENT_API_KEY not set in environment');
   }
+
+  const apiKey = process.env.CURSOR_AGENT_API_KEY;
+  if (!apiKey) {
+    console.error('CURSOR_AGENT_API_KEY not set in environment');
+    throw new Error('CURSOR_AGENT_API_KEY not set in environment');
+  }
+
+  console.log('Cursor Agent API Key present:', !!cursorAgentId);
+  console.log('Cursor API Key present:', !!apiKey);
+  console.log('Comment body:', commentBody.substring(0, 100) + (commentBody.length > 100 ? '...' : ''));
 
   const prompt = `Based on the following rules and context, generate an E2E test script and steps for the user's request: "${commentBody}".
 
@@ -26,25 +37,43 @@ Example response:
   "e2eSteps": ["Step 1", "Step 2"]
 }`;
 
-  const cursorResponse = await fetch(`https://api.cursor.com/agents/${cursorAgentKey}/generate`, {
+  const apiUrl = `https://api.cursor.com/agents/${cursorAgentId}/generate`;
+  console.log('Cursor API URL:', apiUrl);
+
+  const requestBody = JSON.stringify({ prompt });
+  console.log('Request body length:', requestBody.length);
+
+  console.log('Making Cursor API request...');
+  const cursorResponse = await fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.CURSOR_AGENT_API_KEY}`
+      'Authorization': `Bearer ${apiKey}`
     },
-    body: JSON.stringify({ prompt })
+    body: requestBody
   });
 
+  console.log('Cursor API response status:', cursorResponse.status);
+
   if (!cursorResponse.ok) {
-    throw new Error(`Cursor API error: ${cursorResponse.status}`);
+    const errorText = await cursorResponse.text();
+    console.error('Cursor API error response body:', errorText);
+    throw new Error(`Cursor API error: ${cursorResponse.status} - ${errorText}`);
   }
 
   const cursorData = await cursorResponse.json();
+  console.log('Cursor API response parsed successfully');
+  console.log('Response keys:', Object.keys(cursorData));
+  console.log('scriptBlock present:', !!cursorData.scriptBlock);
+  console.log('e2eSteps present:', !!cursorData.e2eSteps);
+
   const { scriptBlock, e2eSteps } = cursorData;
 
   // Extract flow description from the script block
   const flowMatch = scriptBlock.match(/E2E_FLOW_LANDING="([^"]+)"/);
   const flowDescription = flowMatch ? flowMatch[1] : 'Generated E2E Flow';
+  console.log('Extracted flow description:', flowDescription);
+  console.log('Flow description match found:', !!flowMatch);
 
   const contributorTag = `@${userLogin}`;
   const stepsList = e2eSteps.map((step, idx) => `\u2022 ${step}`).join('\n');
