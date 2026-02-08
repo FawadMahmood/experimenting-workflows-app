@@ -1,4 +1,3 @@
-import readRepoFile from './utils/helpers/readRepoFile.js';
 import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2EComment.js';
 import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
 import { generateE2EConfirmationComment } from './utils/helpers/generateE2EConfirmationComment.js';
@@ -69,7 +68,7 @@ export function registerWebhookHandlers(app) {
       ];
       const stepsList = e2eSteps.map((step, idx) => `\u2022 ${step}`).join('\n');
       const confirmationBody = generateE2EConfirmationComment(
-        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- Reply with \"run e2e\" to execute the test.\n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
+        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- React with 🚀 to start the E2E test.\n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
       );
 
     await octokit.rest.pulls.createReviewComment({
@@ -79,6 +78,19 @@ export function registerWebhookHandlers(app) {
       body: confirmationBody,
       in_reply_to: comment.id
     });
+  });
+
+  // Reaction added to review comment
+  app.webhooks.on('pull_request_review_comment.reaction.created', async ({ octokit, payload }) => {
+    const { reaction, comment, pull_request, repository } = payload;
+    const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
+    // Only trigger if rocket emoji is used
+    if (reaction.content === 'rocket') {
+      // Add your E2E test trigger logic here
+      console.log(`🚀 reaction detected on comment ${comment.id} by ${reaction.user.login}`);
+      // Example: call your E2E test runner or workflow
+      // await triggerE2ETest(...);
+    }
   });
 
   app.webhooks.onError((error) => {
