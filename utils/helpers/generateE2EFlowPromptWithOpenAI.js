@@ -8,10 +8,10 @@ import OpenAI from 'openai';
  * @returns {Promise<string>} Formatted confirmation body
  */
 export async function generateE2EFlowPromptWithOpenAI(commentBody, rules, userLogin) {
-  const apiKey = process.env.GPT_API_KEY || process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error('Neither GPT_API_KEY nor OPENAI_API_KEY is set in environment');
-    throw new Error('GPT_API_KEY or OPENAI_API_KEY not set in environment');
+    console.error('OPENAI_API_KEY not set in environment');
+    throw new Error('OPENAI_API_KEY not set in environment');
   }
 
   const openai = new OpenAI({ apiKey });
@@ -48,7 +48,6 @@ Example response:
     model: 'gpt-5.2',
     messages: messages,
     temperature: 0.7,
-    max_tokens: 2000
   });
 
   console.log('OpenAI API response received successfully');
