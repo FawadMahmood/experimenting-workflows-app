@@ -1,6 +1,7 @@
 import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2EComment.js';
 import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
 import { generateE2EConfirmationComment } from './utils/helpers/generateE2EConfirmationComment.js';
+import { generateE2EFlowPromptWithCursor } from './utils/helpers/generateE2EFlowPromptWithCursor.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
@@ -53,31 +54,20 @@ export function registerWebhookHandlers(app) {
     // making it easier for maintainers to spot them that message is being processed.
     await handleBotReplyReaction(octokit, repository, comment, botLogin);
 
-    // Demo: Add confirmation script comment after reaction
-    // These values are hardcoded for demo, but should be dynamically generated in real use
-      const flowDescription = 'login with phone number for returning user';
-        const contributorTag = `@${comment.user.login}`;
-          const scriptBlock = `\n\n\`\`\`sh\n\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage\nE2E_FLOW_LANDING="${flowDescription}"\nPLATFORM=ios\nDEV=true\nyarn test:ios:dev\n\`\`\``;
-      const e2eSteps = [
-        'dismiss ATT popup if present',
-        'tap country dropdown',
-        'filter country list (Pakistan)',
-        'select first country',
-        'enter phone {EXISTING_USER_PHONE_NUMBER}',
-        'tap continue → VerifyOtp'
-      ];
-      const stepsList = e2eSteps.map((step, idx) => `\u2022 ${step}`).join('\n');
-      const confirmationBody = generateE2EConfirmationComment(
-        `${contributorTag},\n\n**Washmen AI E2E Test Confirmation**\n\n---\n\n**Flow:** \"${flowDescription}\"\n\n**Test Steps:**\n${stepsList}\n\n---\n\nHere is the generated E2E test script for your review:\n${scriptBlock}\n\n---\n\n**To proceed:**\n- Reply with "run e2e" to start the E2E test. \n- Reply with your feedback or suggestions to modify the flow.\n\nThank you for collaborating with Washmen AI!`
-      );
+    try {
+      const confirmationBody = await generateE2EFlowPromptWithCursor(comment.body, rules, comment.user.login);
+      const finalBody = generateE2EConfirmationComment(confirmationBody);
 
-    await octokit.rest.pulls.createReviewComment({
-      owner: repository.owner.login,
-      repo: repository.name,
-      pull_number: pull_request.number,
-      body: confirmationBody,
-      in_reply_to: comment.id
-    });
+      await octokit.rest.pulls.createReviewComment({
+        owner: repository.owner.login,
+        repo: repository.name,
+        pull_number: pull_request.number,
+        body: finalBody,
+        in_reply_to: comment.id
+      });
+    } catch (error) {
+      console.error('Error generating E2E confirmation with Cursor:', error);
+    }
   });
 
   app.webhooks.onError((error) => {
