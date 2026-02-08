@@ -14,7 +14,7 @@ export async function generateE2EFlowPromptWithGemini(commentBody, rules, userLo
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
   const prompt = `You are an expert E2E test script generator. Based on the following rules and context, generate an E2E test script and steps for the user's request.
 
