@@ -50,9 +50,7 @@ export async function handleBotReplyReaction(octokit, repository, comment, botLo
         repo: repository.name,
         comment_id: comment.in_reply_to_id
       });
-      console.log('Parent comment user:', parent.user.login, 'Expected bot login:', botLogin);
       if (parent.user.login === botLogin) {
-        console.log('Parent is bot. Adding reaction...');
         await octokit.rest.reactions.createForPullRequestReviewComment({
           owner: repository.owner.login,
           repo: repository.name,
@@ -61,7 +59,6 @@ export async function handleBotReplyReaction(octokit, repository, comment, botLo
         });
         console.log(`Added reaction to comment ${comment.id}`);
       } else {
-        console.log('Parent is not bot. No reaction added.');
       }
     } catch (error) {
       console.error('Error processing reply:', error);
