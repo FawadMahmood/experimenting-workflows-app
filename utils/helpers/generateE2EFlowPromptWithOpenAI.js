@@ -45,7 +45,7 @@ Example response:
 
   console.log('Making OpenAI API request...');
   const completion = await openai.chat.completions.create({
-    model: 'gpt-5.2',
+    model: 'gpt-5-nano',
     messages: messages,
     temperature: 0.7,
   });
