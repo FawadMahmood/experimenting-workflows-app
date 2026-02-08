@@ -80,16 +80,26 @@ export function registerWebhookHandlers(app) {
     });
   });
 
-  // Reaction added to review comment
-  app.webhooks.on('pull_request_review_comment.reaction.created', async ({ octokit, payload }) => {
-    const { reaction, comment, pull_request, repository } = payload;
-    const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
-    // Only trigger if rocket emoji is used
-    if (reaction.content === 'rocket') {
-      // Add your E2E test trigger logic here
-      console.log(`🚀 reaction detected on comment ${comment.id} by ${reaction.user.login}`);
-      // Example: call your E2E test runner or workflow
-      // await triggerE2ETest(...);
+  // Reaction added (covers review comments, issues, etc.)
+  app.webhooks.on('reaction.created', async ({ octokit, payload }) => {
+    const { reaction, subject, repository } = payload;
+    // Only trigger if rocket emoji is used and subject is a pull request review comment
+    if (reaction.content === 'rocket' && subject && subject.type === 'PullRequestReviewComment') {
+      // Fetch the review comment to check its author and content
+      const { data: reviewComment } = await octokit.rest.pulls.getReviewComment({
+        owner: repository.owner.login,
+        repo: repository.name,
+        comment_id: subject.id
+      });
+      const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
+      const isBot = reviewComment.user && reviewComment.user.login === botLogin;
+      const hasE2EConfirmation = reviewComment.body && reviewComment.body.includes('🧪 E2E Test Confirmation') && reviewComment.body.includes('```sh');
+      if (isBot && hasE2EConfirmation) {
+        // Add your E2E test trigger logic here
+        console.log(`🚀 reaction detected on bot E2E confirmation comment ${subject.id} by ${reaction.user.login}`);
+        // Example: call your E2E test runner or workflow
+        // await triggerE2ETest(...);
+      }
     }
   });
 
