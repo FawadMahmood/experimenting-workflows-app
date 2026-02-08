@@ -36,6 +36,7 @@ User request: ${commentBody}`;
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
+    console.log('Gemini API response received successfully', response);
     const text = response.text();
     
     // Parse JSON response
