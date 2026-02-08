@@ -41,8 +41,11 @@ export function registerWebhookHandlers(app) {
 
     console.log('GitHub comment content:', comment.body);
 
-    // Handle reading important files for E2E context and logging them
-    await getRulesForGeneratingE2EFlow(octokit, repository, pull_request);
+    // read rules for AI to process the user provided prompt for generating E2E flow, 
+    // this is needed to provide context to the AI about how to generate the command and what format to follow.
+    const rules = await getRulesForGeneratingE2EFlow(octokit, repository, pull_request);
+    
+    console.log('rules for generating E2E flow:', rules);
     
     // if the comment is made by the bot itself, ignore to prevent reaction loops
     if (comment.user.login === botLogin) return;
