@@ -27,15 +27,14 @@ export async function generateE2EFlowPromptWithOpenAI(commentBody, rules, userLo
 Rules and context:
 ${rules.join('\n')}
 
-Please respond with a JSON object containing:
+Please respond with ONLY a JSON object containing:
 - "scriptBlock": A string with the complete E2E test script in a code block format (e.g., \`\`\`sh\nE2E_TEST_FILTER=...\nE2E_FLOW_LANDING="flow description"\n...\n\`\`\`). The script must include E2E_FLOW_LANDING variable with a descriptive flow name.
 - "e2eSteps": An array of strings describing the test steps.
 
+IMPORTANT: Return ONLY the JSON object, no additional text, explanations, or formatting.
+
 Example response:
-{
-  "scriptBlock": "\`\`\`sh\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \\\\\n  E2E_FLOW_LANDING=\"login with phone number for returning user\" \\\\\n  PLATFORM=ios \\\\\n  DEV=true \\\\\n  yarn test:ios:dev\n\`\`\`",
-  "e2eSteps": ["Step 1", "Step 2"]
-}`
+{"scriptBlock": "\`\`\`sh\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \\\\\n  E2E_FLOW_LANDING=\"login with phone number for returning user\" \\\\\n  PLATFORM=ios \\\\\n  DEV=true \\\\\n  yarn test:ios:dev\n\`\`\`", "e2eSteps": ["Step 1", "Step 2"]}`
     },
     {
       role: "user",

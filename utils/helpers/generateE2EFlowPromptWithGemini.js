@@ -21,28 +21,49 @@ export async function generateE2EFlowPromptWithGemini(commentBody, rules, userLo
 Rules and context:
 ${rules.join('\n')}
 
-Please respond with a JSON object containing:
+Please respond with ONLY a JSON object containing:
 - "scriptBlock": A string with the complete E2E test script in a code block format (e.g., \`\`\`sh\nE2E_TEST_FILTER=...\nE2E_FLOW_LANDING="flow description"\n...\n\`\`\`). The script must include E2E_FLOW_LANDING variable with a descriptive flow name.
 - "e2eSteps": An array of strings describing the test steps.
 
+IMPORTANT: Return ONLY the JSON object, no additional text, explanations, or markdown formatting outside the JSON.
+
 Example response:
-{
-  "scriptBlock": "\`\`\`sh\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \\\\\n  E2E_FLOW_LANDING=\"login with phone number for returning user\" \\\\\n  PLATFORM=ios \\\\\n  DEV=true \\\\\n  yarn test:ios:dev\n\`\`\`",
-  "e2eSteps": ["Step 1", "Step 2"]
-}
+{"scriptBlock": "\`\`\`sh\nE2E_TEST_FILTER=LandingPage,VerifyOtpPage \\\\\n  E2E_FLOW_LANDING=\"login with phone number for returning user\" \\\\\n  PLATFORM=ios \\\\\n  DEV=true \\\\\n  yarn test:ios:dev\n\`\`\`", "e2eSteps": ["Step 1", "Step 2"]}
 
 User request: ${commentBody}`;
 
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    console.log('Gemini API response received successfully', response);
     const text = response.text();
-    console.log('Gemini API response received successfully', text);
-    // Parse JSON response
-    const parsed = JSON.parse(text);
+    
+    console.log('Gemini raw response:', text);
+    console.log('Gemini response length:', text.length);
+    
+    // Parse JSON response - extract from markdown code blocks
+    let jsonText = text.trim();
+    
+    // Look for JSON code block and extract only the JSON content
+    const jsonBlockMatch = jsonText.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+    if (jsonBlockMatch) {
+      jsonText = jsonBlockMatch[1];
+      console.log('Extracted JSON from code block:', jsonText);
+    } else {
+      // Fallback: try to find JSON object in the text
+      const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonText = jsonMatch[0];
+        console.log('Extracted JSON object:', jsonText);
+      }
+    }
+    
+    console.log('Final JSON to parse:', jsonText);
+    
+    const parsed = JSON.parse(jsonText);
+    console.log('Parsed JSON:', parsed);
+    
     if (!parsed.scriptBlock || !parsed.e2eSteps) {
-      throw new Error('Invalid response format from Gemini');
+      throw new Error('Invalid response format from Gemini - missing scriptBlock or e2eSteps');
     }
 
     // Extract flow description from scriptBlock
