@@ -4,7 +4,7 @@ import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2ECom
 
 export function registerWebhookHandlers(app) {
   // PR opened/updated
-  app.webhooks.on(['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'], async ({ octokit, payload }) => {
+  app.webhooks.on(['pull_request.opened'], async ({ octokit, payload }) => {
     const { pull_request, repository } = payload;
     try {
       const { data: files } = await octokit.rest.pulls.listFiles({
@@ -38,8 +38,10 @@ export function registerWebhookHandlers(app) {
   app.webhooks.on('pull_request_review_comment.created', async ({ octokit, payload }) => {
     const { comment, pull_request, repository } = payload;
     const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
+
     // Log the content of the comment
     console.log('GitHub comment content:', comment.body);
+
     // Read and log .cursor/rules/e2e-tests-run-command.mdc from repo (with fallback)
     const e2eTestRule = await readRepoFile(
       octokit,
@@ -47,6 +49,7 @@ export function registerWebhookHandlers(app) {
       '.cursor/rules/e2e-tests-run-command.mdc',
       pull_request.head.ref
     );
+
     if (e2eTestRule) {
       console.log('e2e-tests-run-command.mdc content:', e2eTestRule);
     }
@@ -57,6 +60,7 @@ export function registerWebhookHandlers(app) {
       'e2e/models/som-metadata.ts',
       pull_request.head.ref
     );
+    
     if (somMetadata) {
       console.log('som-metadata.ts content:', somMetadata);
     }
