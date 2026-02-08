@@ -67,12 +67,12 @@ export function registerWebhookHandlers(app) {
           `${contributorTag},\n\nWashmen AI has generated the following E2E test script for the flow: \"${flowDescription}\".\n\nIf you would like to proceed and run the E2E tests for this flow, please reply with \"run e2e\".\n\n${scriptBlock}`
       );
 
-    await octokit.rest.pulls.createReply({
+    await octokit.rest.pulls.createReviewComment({
       owner: repository.owner.login,
       repo: repository.name,
       pull_number: pull_request.number,
       body: confirmationBody,
-      comment_id: comment.id
+      in_reply_to: comment.id
     });
   });
 
