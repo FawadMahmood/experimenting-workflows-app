@@ -6,11 +6,9 @@ const appId = process.env.APP_ID;
 const privateKey = process.env.PRIVATE_KEY;
 const secret = process.env.WEBHOOK_SECRET;
 
-const app = new App({
-  appId,
-  privateKey,
-  webhooks: { secret }
-});
+if (!process.env.APP_ID || !process.env.PRIVATE_KEY || !process.env.WEBHOOK_SECRET) {
+  throw new Error('Missing required environment variables: APP_ID, PRIVATE_KEY, WEBHOOK_SECRET');
+}
 
 registerWebhookHandlers(app);
 
