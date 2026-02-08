@@ -1,7 +1,7 @@
 import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2EComment.js';
 import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
 import { generateE2EConfirmationComment } from './utils/helpers/generateE2EConfirmationComment.js';
-import { generateE2EFlowPromptWithCursor } from './utils/helpers/generateE2EFlowPromptWithCursor.js';
+import { generateE2EFlowPromptWithOpenAI } from './utils/helpers/generateE2EFlowPromptWithOpenAI.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
@@ -55,7 +55,7 @@ export function registerWebhookHandlers(app) {
     await handleBotReplyReaction(octokit, repository, comment, botLogin);
 
     try {
-      const confirmationBody = await generateE2EFlowPromptWithCursor(comment.body, rules, comment.user.login);
+      const confirmationBody = await generateE2EFlowPromptWithOpenAI(comment.body, rules, comment.user.login);
       const finalBody = generateE2EConfirmationComment(confirmationBody);
 
       await octokit.rest.pulls.createReviewComment({

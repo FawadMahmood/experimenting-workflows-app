@@ -7,7 +7,7 @@ import OpenAI from 'openai';
  * @param {string} userLogin - GitHub username of the commenter
  * @returns {Promise<string>} Formatted confirmation body
  */
-export async function generateE2EFlowPromptWithCursor(commentBody, rules, userLogin) {
+export async function generateE2EFlowPromptWithOpenAI(commentBody, rules, userLogin) {
   const apiKey = process.env.GPT_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     console.error('Neither GPT_API_KEY nor OPENAI_API_KEY is set in environment');
@@ -47,7 +47,8 @@ Example response:
   const completion = await openai.chat.completions.create({
     model: 'gpt-4',
     messages: messages,
-    temperature: 0.7
+    temperature: 0.7,
+    max_tokens: 2000
   });
 
   console.log('OpenAI API response received successfully');
