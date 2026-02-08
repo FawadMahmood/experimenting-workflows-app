@@ -38,7 +38,7 @@ User request: ${commentBody}`;
     const response = await result.response;
     console.log('Gemini API response received successfully', response);
     const text = response.text();
-    
+    console.log('Gemini API response received successfully', text);
     // Parse JSON response
     const parsed = JSON.parse(text);
     if (!parsed.scriptBlock || !parsed.e2eSteps) {
