@@ -1,5 +1,6 @@
 import readRepoFile from './utils/helpers/readRepoFile.js';
 import { generateWashmenE2EComment } from './utils/helpers/generateWashmenE2EComment.js';
+import { getRulesForGeneratingE2EFlow, handleBotReplyReaction } from './utils/helpers/reviewCommentHelpers.js';
 // webhookHandlers.js
 
 export function registerWebhookHandlers(app) {
@@ -28,7 +29,6 @@ export function registerWebhookHandlers(app) {
           body: body
         }]
       });
-      console.log(`Posted initial comment on PR ${pull_request.number}`);
     } catch (error) {
       console.error('Error posting initial comment:', error);
     }
@@ -39,54 +39,18 @@ export function registerWebhookHandlers(app) {
     const { comment, pull_request, repository } = payload;
     const botLogin = process.env.BOT_LOGIN || 'github-actions[bot]';
 
-    // Log the content of the comment
     console.log('GitHub comment content:', comment.body);
 
-    // Read and log .cursor/rules/e2e-tests-run-command.mdc from repo (with fallback)
-    const e2eTestRule = await readRepoFile(
-      octokit,
-      repository,
-      '.cursor/rules/e2e-tests-run-command.mdc',
-      pull_request.head.ref
-    );
-
-    if (e2eTestRule) {
-      console.log('e2e-tests-run-command.mdc content:', e2eTestRule);
-    }
-    // Read and log e2e/models/som-metadata.ts from repo (with fallback)
-    const somMetadata = await readRepoFile(
-      octokit,
-      repository,
-      'e2e/models/som-metadata.ts',
-      pull_request.head.ref
-    );
+    // Handle reading important files for E2E context and logging them
+    await getRulesForGeneratingE2EFlow(octokit, repository, pull_request);
     
-    if (somMetadata) {
-      console.log('som-metadata.ts content:', somMetadata);
-    }
-    // Construct and log the prompt
+    // if the comment is made by the bot itself, ignore to prevent reaction loops
     if (comment.user.login === botLogin) return;
-    if (comment.in_reply_to_id) {
-      try {
-        const { data: parent } = await octokit.rest.pulls.getReviewComment({
-          owner: repository.owner.login,
-          repo: repository.name,
-          comment_id: comment.in_reply_to_id
-        });
-        if (parent.user.login === botLogin) {
-          // Add reaction
-          await octokit.rest.reactions.createForPullRequestReviewComment({
-            owner: repository.owner.login,
-            repo: repository.name,
-            comment_id: comment.id,
-            content: 'eyes'
-          });
-          console.log(`Added reaction to comment ${comment.id}`);
-        }
-      } catch (error) {
-        console.error('Error processing reply:', error);
-      }
-    }
+
+    // Handle adding reaction if it's a reply to a bot comment
+    // this is to react to user replies to the bot's initial comment, 
+    // making it easier for maintainers to spot them that message is being processed.
+    await handleBotReplyReaction(octokit, repository, comment, botLogin);
   });
 
   app.webhooks.onError((error) => {
