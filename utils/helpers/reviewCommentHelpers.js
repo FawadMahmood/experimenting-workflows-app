@@ -7,8 +7,11 @@
  * @param {object} pull_request - The pull request object from the webhook payload
  */
 export async function getRulesForGeneratingE2EFlow(octokit, repository, pull_request) {
+  // Dynamically import the readRepoFile helper
+  const { default: readRepoFile } = await import('./readRepoFile.js');
+
   // Read and log .cursor/rules/e2e-tests-run-command.mdc from repo (with fallback)
-  const e2eTestRule = await import('./readRepoFile.js').then(m => m.default)(
+  const e2eTestRule = await readRepoFile(
     octokit,
     repository,
     '.cursor/rules/e2e-tests-run-command.mdc',
@@ -16,7 +19,7 @@ export async function getRulesForGeneratingE2EFlow(octokit, repository, pull_req
   );
 
   // Read and log e2e/models/som-metadata.ts from repo (with fallback)
-  const somMetadata = await import('./readRepoFile.js').then(m => m.default)(
+  const somMetadata = await readRepoFile(
     octokit,
     repository,
     'e2e/models/som-metadata.ts',
